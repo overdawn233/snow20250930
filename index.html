@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>事件时间线</title>
+	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+			scroll-behavior: smooth;
+		}
+
+		body {
+			font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif;
+			background: #f5f5f5;
+			overflow-x: hidden;
+		}
+
+		/* 侧边栏 */
+		.sidebar {
+			position: fixed;
+			left: 0;
+			top: 0;
+			width: 280px;
+			height: 100vh;
+			background: rgba(44, 62, 80, 0.9);
+			color: white;
+			transform: translateX(-100%);
+			transition: transform 0.3s ease;
+			z-index: 1000;
+			overflow-y: auto;
+			box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+		}
+
+		.sidebar.open {
+			transform: translateX(0);
+		}
+
+		.sidebar-header {
+			padding: 20px;
+			background: #34495e;
+			font-size: 18px;
+			font-weight: bold;
+			border-bottom: 1px solid #465a6d;
+		}
+
+		.sidebar-list {
+			list-style: none;
+			padding: 10px 0;
+		}
+
+		.sidebar-list li {
+			border-bottom: 1px solid #34495e;
+		}
+
+		.sidebar-list a {
+			display: block;
+			padding: 15px 20px;
+			padding-left: 40px;
+			color: #ecf0f1;
+			text-decoration: none;
+			transition: background 0.2s;
+			position: relative;
+		}
+
+		/* 侧边栏小圆点 */
+		.sidebar-list a::before {
+			content: '';
+			position: absolute;
+			left: 20px;
+			top: 50%;
+			transform: translateY(-50%);
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			border: 2px solid var(--dot-color, #ecf0f1);
+			background: transparent;
+			transition: background 0.2s, border-color 0.2s;
+		}
+
+		.sidebar-list a:hover {
+			background: #34495e;
+		}
+
+		.sidebar-list a:hover::before {
+			border-color: var(--dot-color, #3498db);
+			background: var(--dot-color, #3498db);
+		}
+
+		/* 侧边栏切换按钮 */
+		.sidebar-toggle {
+			position: fixed;
+			left: 10px;
+			top: 10px;
+			width: 50px;
+			height: 50px;
+			background: #3498db;
+			border: none;
+			border-radius: 8px;
+			color: white;
+			font-size: 24px;
+			cursor: pointer;
+			z-index: 999;
+			box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+			transition: all 0.3s;
+		}
+
+		.sidebar-toggle:hover {
+			background: #2980b9;
+			transform: scale(1.00);
+		}
+
+		/* 主容器 */
+		.container {
+			max-width: 1200px;
+			margin: 80px auto;
+			padding: 0 20px;
+			position: relative;
+		}
+
+		/* 时间线主轴 */
+		.timeline {
+			position: relative;
+			padding: 40px 0;
+		}
+
+		.timeline::before {
+			content: '';
+			position: absolute;
+			left: 50%;
+			top: 0;
+			bottom: 0;
+			width: 3px;
+			background: #bdc3c7;
+			transform: translateX(-50%);
+		}
+
+		/* 大气泡（年月） */
+		.big-bubble {
+			position: relative;
+			margin: 40px 0;
+			z-index: 10;
+			user-select: none;
+			pointer-events: none;
+		}
+
+		.big-bubble-content {
+			background: #3498db;
+			color: white;
+			padding: 12px 30px;
+			border-radius: 25px;
+			text-align: center;
+			font-size: 18px;
+			font-weight: bold;
+			margin: 0 auto;
+			max-width: 250px;
+			box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.1);
+		}
+
+		/* 小气泡（日期） */
+		.small-bubble {
+			position: relative;
+			margin: 30px 0;
+			z-index: 5;
+			user-select: none;
+		}
+
+		.small-bubble-content {
+			position: absolute;
+			left: 50%;
+			transform: translateX(-50%);
+			width: 70px;
+			height: 70px;
+			background: #2ecc71;
+			border: 4px solid #f5f5f5;
+			border-radius: 50%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-size: 16px;
+			font-weight: bold;
+			color: white;
+			box-shadow: 0 3px 10px rgba(46, 204, 113, 0.3);
+		}
+
+		/* 事件容器 */
+		.event-container {
+			position: relative;
+			margin: 20px 0;
+			z-index: 1;
+			scroll-margin-top: 40vh;
+			pointer-events: none;
+			/* 保底兼容性 */
+			min-height: 170px;
+		}
+		
+		/* 有缩略图时 */
+		.event-container:has(.thumbnail) {
+			min-height: 170px;
+		}
+		
+		/* 无缩略图时 */
+		.event-container:not(:has(.thumbnail)) {
+			min-height: 100px;
+		}
+
+		/* 事件气泡 */
+		.event-bubble {
+			position: absolute;
+			width: 45%;
+			border-radius: 12px;
+			padding: 4px;
+			box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.1);
+			cursor: pointer;
+			transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1), max-height 0.5s ease;
+			max-height: 200px;
+			overflow: visible;            /* 原来是 hidden */
+			pointer-events: auto;
+		}
+
+		.event-bubble.expanded {
+			width: 46%;
+			max-height: none;
+			box-shadow: 0 6px 30px rgba(0,0,0,0.2), 0 3px 12px rgba(0,0,0,0.15);
+			z-index: 100;
+		}
+
+		/* 添加内部白色背景容器 */
+		.event-bubble-inner {
+			background: white;
+			border-radius: 8px;
+			padding: 16px;
+			height: 100%;
+			overflow: hidden;             /* 新增：把裁剪放到内部白色容器 */
+		}
+
+		.event-bubble.left {
+			right: 55%;
+			text-align: right;
+		}
+
+		.event-bubble.right {
+			left: 55%;
+			text-align: left;
+		}
+
+		/* 事件连接线 */
+		/* .event-bubble::after {
+			content: '';
+			position: absolute;
+			top: 30px;
+			width: 30px;
+			height: 2px;
+			background: #e74c3c;
+		}
+
+		.event-bubble.left::after {
+			right: -30px;
+		}
+
+		.event-bubble.right::after {
+			left: -30px;
+		} */
+
+		/* 三角形指示器 - 指向小气泡 */
+		.event-bubble::before {
+			content: '';
+			position: absolute;
+			top: 24px;
+			width: 0;
+			height: 0;
+			border-style: solid;
+			z-index: 1;
+		}
+
+		.event-bubble.left::before {
+			right: -11px;
+			border-width: 10px 0 10px 12px;
+			border-color: transparent transparent transparent var(--triangle-color, #e74c3c);
+		}
+
+		.event-bubble.right::before {
+			left: -11px;
+			border-width: 10px 12px 10px 0;
+			border-color: transparent var(--triangle-color, #e74c3c) transparent transparent;
+		}
+
+		/* 事件标题 */
+		.event-title {
+			font-size: 18px;
+			font-weight: bold;
+			margin-bottom: 10px;
+			color: #2c3e50;
+			/* 添加以下样式 */
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			transition: white-space 0.3s ease;
+		}
+
+		/* 缩略图容器 */
+		.thumbnails {
+			display: flex;
+			gap: 8px;
+			margin-top: 10px;
+			flex-wrap: wrap;
+			opacity: 1;
+			max-height: 80px;
+			overflow: hidden;
+			transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+		}
+
+		/* 展开时显示完整标题 */
+		.event-bubble.expanded .event-title {
+			white-space: normal;
+			word-wrap: break-word;
+		}
+
+		/* 展开时隐藏缩略图 */
+		.event-bubble.expanded .thumbnails {
+			opacity: 0;
+			max-height: 0;
+			margin-top: 0;
+			margin-bottom: 0;
+		}
+
+		.event-bubble.left .thumbnails {
+			justify-content: flex-end;
+		}
+
+		.event-bubble.right .thumbnails {
+			justify-content: flex-start;
+		}
+
+		.thumbnail {
+			max-height: 60px;
+			width: auto;
+			object-fit: cover;
+			border-radius: 6px;
+			box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+		}
+
+		/* 事件内容 */
+		.event-content {
+			display: block;
+			max-height: 0;
+			opacity: 0;
+			overflow: hidden;
+			margin-top: 0;
+			padding-top: 0;
+			border-top: none;
+			color: #000000;
+			line-height: 1.6;
+			text-align: left;
+			transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease, padding 0.3s ease;
+		}
+
+		/* 或者更温和的换行方式（推荐） */
+		.event-content a {
+			word-break: break-word;
+			overflow-wrap: anywhere;
+			display: inline;
+		}
+
+		.event-bubble.expanded .event-content {
+			max-height: none;
+			opacity: 1;
+			margin-top: 15px;
+			padding-top: 15px;
+			border-top: 2px solid #ecf0f1;
+		}
+
+		.event-content img {
+			max-width: 100%;
+			height: auto;
+			border-radius: 8px;
+			margin: 10px 0;
+		}
+
+		/* 展开提示 - 修复瞬移问题 */
+		.expand-hint {
+			text-align: center;
+			color: #95a5a6;
+			font-size: 12px;
+			margin-top: 10px;
+			padding: 5px 0;
+			border-top: 1px dashed #e0e0e0;
+			user-select: none;
+			opacity: 1;
+			max-height: 50px;
+			overflow: hidden;
+			transition: opacity 0.4s ease, max-height 0.4s ease, margin 0.4s ease, padding 0.4s ease;
+		}
+
+		.event-bubble.expanded .expand-hint {
+			opacity: 0;
+			max-height: 0;
+			margin-top: 0;
+			margin-bottom: 0;
+			padding-top: 0;
+			padding-bottom: 0;
+		}
+
+		/* 收起提示 */
+		.collapse-hint {
+			opacity: 0;
+			max-height: 0;
+			overflow: hidden;
+			text-align: center;
+			color: #95a5a6;
+			font-size: 12px;
+			margin-top: 0;
+			padding: 0;
+			border-top: 1px dashed #e0e0e0;
+			cursor: pointer;
+			user-select: none;
+			transition: opacity 0.4s ease, max-height 0.4s ease, margin 0.4s ease, padding 0.4s ease;
+		}
+
+		.collapse-hint:hover {
+			color: #3498db;
+		}
+
+		.event-bubble.expanded .collapse-hint {
+			opacity: 1;
+			max-height: 50px;
+			margin-top: 15px;
+			padding: 8px 0;
+		}
+
+		.event-bubble.expanded {
+			cursor: default;
+		}
+
+		.collapse-hint {
+			cursor: pointer !important;
+		}
+
+		.fullscreen-image-container {
+			display: none;
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(0, 0, 0, 0.9);
+			z-index: 2000;
+			cursor: default;
+			opacity: 0;
+			transition: opacity 0.3s ease;
+		}
+
+		.fullscreen-image-container.active {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			opacity: 1;
+		}
+
+		.fullscreen-image {
+			max-width: 90%;
+			max-height: 90vh;
+			object-fit: contain;
+			border-radius: 8px;
+			box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+			transform: scale(0.9);
+			transition: transform 0.3s ease;
+		}
+
+		.fullscreen-image-container.active .fullscreen-image {
+			transform: scale(1);
+		}
+
+		/* 修改事件内容中的图片样式 */
+		.event-content img {
+			max-width: 100%;
+			height: auto;
+			border-radius: 8px;
+			margin: 10px 0;
+			cursor: zoom-in;
+			transition: transform 0.2s ease;
+		}
+
+		.event-content img:hover {
+			transform: scale(1.02);
+		}
+
+		/* 移动端适配 */
+		@media (max-width: 768px) {
+			.timeline::before {
+				left: 30px;
+			}
+
+			.event-bubble {
+				width: calc(100% - 80px);
+				left: 60px !important;
+				right: auto !important;
+				text-align: left;
+			}
+
+			/* 添加这个：移动端展开时保持宽度不变 */
+			.event-bubble.expanded {
+				width: calc(100% - 80px);
+			}
+
+			.event-bubble.left {
+				text-align: left;
+			}
+
+			/* .event-bubble::after {
+				left: -30px !important;
+				right: auto !important;
+			} */
+
+			/* 移动端三角形适配 */
+			.event-bubble::before {
+				left: -11px !important;
+				right: auto !important;
+				border-width: 10px 12px 10px 0 !important;
+				border-color: transparent var(--triangle-color, #e74c3c) transparent transparent !important;
+			}
+
+			.small-bubble-content {
+				left: 30px;
+				transform: translateX(-50%);
+			}
+
+			.big-bubble-content {
+				margin-left: 30px;
+				margin-right: 20px;
+			}
+
+			.thumbnails {
+				justify-content: flex-start !important;
+			}
+
+			.sidebar {
+				width: 50%;
+			}			
+		}
+		.color {
+			color:#2e643a;
+		}
+
+
+	</style>
+</head>
+<body>
+	<!-- 侧边栏切换按钮 -->
+	<button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+
+	<!-- 侧边栏 -->
+	<div class="sidebar" id="sidebar">
+		<div class="sidebar-header">事件列表</div>
+		<ul class="sidebar-list" id="sidebarList">
+			<!-- 动态生成 -->
+		</ul>
+	</div>
+
+	<!-- 主容器 -->
+	<div class="container">
+		<div class="timeline" id="timeline">
+			<!-- 动态生成时间线 -->
+		</div>
+	</div>
+
+	<!-- 添加全屏图片容器 -->
+	<div class="fullscreen-image-container" id="fullscreenContainer">
+		<img class="fullscreen-image" id="fullscreenImage" alt="全屏图片">
+	</div>
+
+	<script>
+		// 全局颜色组配置
+		const colorGroups = {
+			"default": {
+				timeline: "#7f8c8d",
+				bigBubble: "#000000",
+				smallBubble: "#7f8c8d",
+				eventBubble: "#000000"
+			},
+			"warning": {
+				timeline: "#e67e22",
+				bigBubble: "#e74c3c",
+				smallBubble: "#f39c12",
+				eventBubble: "#c0392b"
+			},
+			"dark": {
+				timeline: "#34495e",
+				bigBubble: "#2c3e50",
+				smallBubble: "#7f8c8d",
+				eventBubble: "#95a5a6"
+			},
+			"success": {
+				timeline: "#16a085",
+				bigBubble: "#27ae60",
+				smallBubble: "#2ecc71",
+				eventBubble: "#1abc9c"
+			}
+		};
+
+		// 示例事件数据
+		const events = 
+[{"title_full":"【注解🖋️】【天明】关于作者","datetime":"2024-08-29 20:40","content":"<p>时间：2025-10-20 19:37<br /><br />本时间线作者：<br />天明<br />overdawn233<br /><a href=\"https://github.com/overdawn233\" target=\"_blank\">https://github.com/overdawn233</a><br /><br />免责声明：图片和资料收集于互联网(均为一手资料)<br /><br /><img src=\".\\img\\2025-10-21 13-58-01 overdawn233.png\" alt=\"\" width=\"50%\" /><br /><br />本文收录的内容都是绝对的一手信息：<br />1、源于官方<br />2、源于事件当中本人<br /><br />不要问，关于为什么我不收录源于其他UP主的\"超可信的二手消息\"的类似问题了，谢谢了<br />(无法验证的纯聊天记录(二手信息)暂不收录，为什么？)<br /><br />【天明】关于证据<br />如果有其他的一手资料可以补充提供的<br />请发送至overdawn233@gmail.com<br />(默认为不记名的匿名投稿)<br /><br />【天明】不被采纳的证据，例子⬇️<br /><br />2025-09-30 21:02<br />发一个打破信息壁垒的帖子 - 四小贩の祝福<br /><a href=\"https://tieba.baidu.com/p/10086519672\" target=\"_blank\">https://tieba.baidu.com/p/10086519672</a><br />(无直接或间接的身份证明，且前后发言矛盾⚠️)<br /><br />2025-09-30 21:44<br />再发一个关于游戏内容的采访贴 - 四小贩の祝福<br /><a href=\"https://tieba.baidu.com/p/10086613523\" target=\"_blank\">https://tieba.baidu.com/p/10086613523</a><br />(无直接或间接的身份证明，且前后发言矛盾⚠️)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 19-34 &ldquo;打破信息壁垒&rdquo;1.png\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 21-47 &ldquo;打破信息壁垒&rdquo;2.png\" alt=\"\" width=\"50%\" /><br />天明：证据如果无直接或间接的身份证明，或者前后发言矛盾的，都会被我在此排除<br /><br />【天明】目前未被采纳的证据⬇️<br /><br />2025-09-29 03:26<br />线下丹砂狸花猫，战绩可查 - 爱睡懒觉的小狸猫<br /><a href=\"https://www.bilibili.com/video/BV13fHFzbEkE/\" target=\"_blank\">https://www.bilibili.com/video/BV13fHFzbEkE/</a><br />(无直接或间接的身份证明)<br /><br />2025-09-29 08:07<br />线下老哥们的其他成果 - 就叫鹏哥吧<br /><a href=\"https://tieba.baidu.com/p/10081702642\" target=\"_blank\">https://tieba.baidu.com/p/10081702642</a><br />(无直接或间接的身份证明)<br /><br />2025-10-01 09:19<br />给隔壁需要真相的人 - 就叫鹏哥吧<br /><a href=\"https://tieba.baidu.com/p/10087918864\" target=\"_blank\">https://tieba.baidu.com/p/10087918864</a><br />(无直接或间接的身份证明)<br /><br />2025-10-01 21:07<br />成都线下相关 - 无念无恒<br /><a href=\"https://tieba.baidu.com/p/10089392982\" target=\"_blank\">https://tieba.baidu.com/p/10089392982</a><br />(⚠️仅有间接的身份证明，未有人提供交叉验证)<br /><br />【天明】<br />最后，如果你觉得连这个时间线都算不上\"事实\"，那是你的自由<br /><br />但如果有些\"极端小团体\"非要张口就来造谣式辟谣，那么我只能引用某人的名言<br /><img src=\".\\img\\0930_mumu_chongchong\\2024-10-31 15-44 木木_现在造谣成本这么低了？.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":1},{"title_full":"【木木】\"海外2024TGS展会邀请的coser问题\"","datetime":"2024-09-29 20:41","content":"<p>时间：2024-09-29 20:41<br /><img src=\".\\img\\0930_mumu_chongchong\\2024-09-29 20-41 木木_海外TGS的COSER问题.png\" alt=\"\" width=\"50%\" /><br />海外2024TGS展会邀请的coser问题 - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/969972888761270291#reply243418989648\" target=\"_blank\">https://t.bilibili.com/969972888761270291#reply243418989648</a></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2024-09-29 20-41 木木_海外TGS的COSER问题.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":2},{"title_full":"【木木】\"未来将不再邀请COSER\"","datetime":"2024-10-07 07:10","content":"<p>时间：2024-10-07 07:10<br /><img src=\".\\img\\0930_mumu_chongchong\\2024-10-07 23-10 木木_关于COSER的问题.png\" alt=\"\" width=\"50%\" /><br />未来将不再邀请COSER - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/985589475728949288\" target=\"_blank\">https://t.bilibili.com/985589475728949288</a></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2024-10-07 23-10 木木_关于COSER的问题.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":3},{"title_full":"【冲冲】\"海外团队也有员工是常驻在成都\"","datetime":"2024-10-07 07:11","content":"<p>时间：2024-05-25 21:38<br /><img src=\".\\img\\0930_mumu_chongchong\\2024-05-25 21-38 冲冲_海外员工有常驻成都.png\" alt=\"\" width=\"50%\" /><br />会的。海外团队也有员工是常驻在成都，和我们保持沟通的。 - 冲冲_ChongChong__<br /><a href=\"https://t.bilibili.com/935459403408080917#reply223163882704\" target=\"_blank\">https://t.bilibili.com/935459403408080917#reply223163882704</a></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2024-05-25 21-38 冲冲_海外员工有常驻成都.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":4},{"title_full":"【关于承诺】 - 段落小结","datetime":"2024-10-07 07:11","content":"<p>时间：2024-09-29 20:41<br /><br />两位尘白制作人曾经的承诺如下：<br /><br />1、\"海外团队也有员工是常驻在成都\"<br />冲冲_ChongChong__ 2024-05-25 21:38<br /><a href=\"https://t.bilibili.com/969972888761270291#reply243418989648\" target=\"_blank\">https://t.bilibili.com/969972888761270291#reply243418989648</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2024-05-25 21-38 冲冲_海外员工有常驻成都.png\" alt=\"\" width=\"50%\" /><br />2、\"海外coser问题，会尽量避免类似事件再次发生\"<br />木木_MuMu__ 2024-09-29 20:41<br /><a href=\"https://t.bilibili.com/969972888761270291#reply243418989648\" target=\"_blank\">https://t.bilibili.com/969972888761270291#reply243418989648</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2024-09-29 20-41 木木_海外TGS的COSER问题.png\" alt=\"\" width=\"50%\" /><br />3、\"我们未来将不再邀请coser\"<br />木木_MuMu__ 2024-10-07 07:10<br /><a href=\"https://t.bilibili.com/985589475728949288\" target=\"_blank\">https://t.bilibili.com/985589475728949288</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2024-10-07 23-10 木木_关于COSER的问题.png\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2024-05-25 21-38 冲冲_海外员工有常驻成都.png",".\\img\\0930_mumu_chongchong\\2024-09-29 20-41 木木_海外TGS的COSER问题.png",".\\img\\0930_mumu_chongchong\\2024-10-07 23-10 木木_关于COSER的问题.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":5},{"title_full":"尘白禁区3.2版本更新预告","datetime":"2025-09-10 12:30","content":"<p>时间：2025-09-10 12:30<br /><br />尘白禁区3.2版本更新预告<br /><br />原文链接：<br /><a href=\"https://x.com/SnowbreakJP/status/1965633834143424860\" target=\"_blank\">https://x.com/SnowbreakJP/status/1965633834143424860</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-10 12-30 新版本预告.png\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-10 12-30 新版本预告.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":6},{"title_full":"有玩家在尘白禁区吧分享日本的线下宣发现场，但帖子被尘白禁区吧务迅速删除","datetime":"2025-09-22 12:00","content":"<p>时间：2025-09-22 12:00<br /><br />尘白禁区在秋叶原(日本)设立了大量的宣发，包括广告横幅，以及免费的游玩赠品<br /><br />但是此帖被尘白禁区吧迅速删除<br /><br />最奇怪的是，当时的吧规里并没有说禁止讨论此类内容<br /><br />帖子链接：<br /><a href=\"https://tieba.baidu.com/p/10093627702\" target=\"_blank\">https://tieba.baidu.com/p/10093627702</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-22 12-00 日服宣发_被删帖.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-22 12-00 扩圈泥头车.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-22 12-00 线下无料.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-22 12-00 扩圈泥头车.jpg",".\\img\\0930_mumu_chongchong\\2025-09-22 12-00 线下无料.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":7},{"title_full":"尘白禁区3.2版本开启","datetime":"2025-09-25 09:26","content":"<p>时间：2025-09-25 09:26 17:03<br /><br />尘白禁区3.2版本开启<br /><br />原文链接：<br /><a href=\"https://x.com/SnowbreakJP/status/1971023442968543686\" target=\"_blank\">https://x.com/SnowbreakJP/status/1971023442968543686</a><img src=\".\\img\\0930_mumu_chongchong\\2025-09-25 09-26 尘白禁区_更新完成.png\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-25 09-26 尘白禁区_更新完成.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":8},{"title_full":"【0927】在推特(X)的尘白禁区(国际服)话题上，突然出现大量的职业COSER发布尘白新版本新角色/新时装的COS套图","datetime":"2025-09-27 16:58","content":"<p>时间：2025-09-25 09:26 17:03<br /><br />在推特(X)的尘白禁区(国际服)话题上，突然出现大量的职业COSER发布尘白新版本新角色/新时装的COS套图<br />[图片]<br /><br />已知的COSER有：<br />あまれるみ(@Amane_Rumii)<br /><a title=\"https://x.com/Amane_Rumii\" href=\"https://x.com/Amane_Rumii\" target=\"_blank\">https://x.com/Amane_Rumii/</a><br /><br class=\"jop-noMdConv\" />純米あやの🍶♨️(@ayanopi_)<br /><a title=\"https://x.com/ayanopi_\" href=\"https://x.com/ayanopi_\" target=\"_blank\">https://x.com/ayanopi_/</a><br /><br class=\"jop-noMdConv\" />切切キリコ(@celia_aya)<br /><a title=\"https://x.com/celia_aya\" href=\"https://x.com/celia_aya\" target=\"_blank\">https://x.com/celia_aya/</a><br /><br class=\"jop-noMdConv\" />水羽えと(@Etocha_cos)<br /><a title=\"https://x.com/Etocha_cos\" href=\"https://x.com/Etocha_cos\" target=\"_blank\">https://x.com/Etocha_cos/</a><br /><br class=\"jop-noMdConv\" />いも(@imo00_2)<br /><a title=\"https://x.com/imo00_2\" href=\"https://x.com/imo00_2\" target=\"_blank\">https://x.com/imo00_2/</a><br /><br />きちぴよ(@kc_2_cos)<br /><a title=\"https://x.com/kc_2_cos\" href=\"https://x.com/kc_2_cos\">https://x.com/kc_2_cos</a><br /><br class=\"jop-noMdConv\" />三橋くん🍯(@mitsuhashi_zZ)<br /><a title=\"https://x.com/mitsuhashi_zZ\" href=\"https://x.com/mitsuhashi_zZ\" target=\"_blank\">https://x.com/mitsuhashi_zZ/</a><br /><br class=\"jop-noMdConv\" />Nekoneko JX(@NekonekoJX)<br /><a title=\"https://x.com/NekonekoJX\" href=\"https://x.com/NekonekoJX\" target=\"_blank\">https://x.com/NekonekoJX/</a><br /><br class=\"jop-noMdConv\" />プリンちゃん🍮(@purinn_cos)<br /><a title=\"https://x.com/purinn_cos\" href=\"https://x.com/purinn_cos\" target=\"_blank\">https://x.com/purinn_cos/</a><br /><br class=\"jop-noMdConv\" />PeachMilky 🌟(@PeachMilky_)<br /><a title=\"https://x.com/PeachMilky_\" href=\"https://x.com/PeachMilky_\" target=\"_blank\">https://x.com/PeachMilky_/</a><br /><br class=\"jop-noMdConv\" />리리 RiRi🪽(@riri_thisway)<br /><a title=\"https://x.com/riri_thisway\" href=\"https://x.com/riri_thisway\" target=\"_blank\">https://x.com/riri_thisway/</a><br /><br class=\"jop-noMdConv\" />しる/sɪʀᴜ✨(@siru_0207)<br /><a title=\"https://x.com/siru_0207\" href=\"https://x.com/siru_0207\" target=\"_blank\">https://x.com/siru_0207/</a><br /><br class=\"jop-noMdConv\" />以及\"女主播\"(直播宣传)：<br />東雲うみ🤖(@sinonome_umi)<br /><a title=\"https://x.com/sinonome_umi\" href=\"https://x.com/sinonome_umi\" target=\"_blank\">https://x.com/sinonome_umi</a><br /><br class=\"jop-noMdConv\" />伊織もえ(@iorimoe_five)<br /><a title=\"https://x.com/iorimoe_five\" href=\"https://x.com/iorimoe_five\" target=\"_blank\">https://x.com/iorimoe_five</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-28 10-03-31 【补档】尘白禁区外服特供coser！国外玩家吃的也太好了！- 疑似自我意识过剩.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":9},{"title_full":"【天明】【COS】关于推特帖子的时间戳","datetime":"2025-09-27 16:59","content":"<p>时间：2025-09-27 17:03<br /><img src=\".\\img\\0927_coser_on_x\\2025-09-28 10-03-31 【补档】尘白禁区外服特供coser！国外玩家吃的也太好了！- 疑似自我意识过剩.png\" alt=\"\" width=\"50%\" /><br /><br />推特帖子的时间戳，取自于此视频，特此声明<br />视频链接：<a href=\"https://www.bilibili.com/video/BV1kynXzRE6N/\" target=\"_blank\">https://www.bilibili.com/video/BV1kynXzRE6N/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-28 10-03-31 【补档】尘白禁区外服特供coser！国外玩家吃的也太好了！- 疑似自我意识过剩.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":10},{"title_full":"【COS】2025-09-27 17-03 PeachMilky_","datetime":"2025-09-27 17:00","content":"<p>时间：2025-09-27 17:03<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 17-03 PeachMilky_.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-34-44 X_PeachMilky_.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/PeachMilky_/\" href=\"https://x.com/PeachMilky_/\" target=\"_blank\">https://x.com/PeachMilky_/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 17-03 PeachMilky_.png",".\\img\\0927_coser_profile\\2025-10-13 06-34-44 X_PeachMilky_.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":11},{"title_full":"【COS】2025-09-27 17-42 celia_aya","datetime":"2025-09-27 17:42","content":"<p>时间：2025-09-27 17:42<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 17-42 celia_aya.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 07-04-37 X_celia_aya.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/celia_aya/\" href=\"https://x.com/celia_aya/\" target=\"_blank\">https://x.com/celia_aya/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 17-42 celia_aya.png",".\\img\\0927_coser_profile\\2025-10-13 07-04-37 X_celia_aya.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":12},{"title_full":"【COS】2025-09-27 17-52 ayanopi_","datetime":"2025-09-27 17:52","content":"<p>时间：2025-09-27 17:52<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 17-52 ayanopi_.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-15 02-37-35 X_ayanopi_.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/ayanopi_/\" href=\"https://x.com/ayanopi_/\" target=\"_blank\">https://x.com/ayanopi_/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 17-52 ayanopi_.png",".\\img\\0927_coser_profile\\2025-10-15 02-37-35 X_ayanopi_.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":13},{"title_full":"【COS】2025-09-27 18-00 Amane_Rumii","datetime":"2025-09-27 18:00","content":"<p>时间：2025-09-27 18:00<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 18-00 Amane_Rumii.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-03-29 X_Amane_Rumii.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/Amane_Rumii/\" href=\"https://x.com/Amane_Rumii/\" target=\"_blank\">https://x.com/Amane_Rumii/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 18-00 Amane_Rumii.png",".\\img\\0927_coser_profile\\2025-10-13 06-03-29 X_Amane_Rumii.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":14},{"title_full":"【COS】2025-09-27 18-00 kc_2_cos","datetime":"2025-09-27 18:00","content":"<p>时间：2025-09-27 18:00<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 18-00 kc_2_cos.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-35-35 X_kc_2_cos.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/kc_2_cos/\" href=\"https://x.com/kc_2_cos/\" target=\"_blank\">https://x.com/kc_2_cos/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 18-00 kc_2_cos.png",".\\img\\0927_coser_profile\\2025-10-13 06-35-35 X_kc_2_cos.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":15},{"title_full":"【\"女主播\"】2025-09-27 18-40 iorimoe_five","datetime":"2025-09-27 18:40","content":"<p>时间：2025-09-27 17:03<br /><img src=\".\\img\\0927_coser_on_x\\2025-09-27 18-40 iorimoe_five.png\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0927_coser_on_x\\2025-09-27 18-40 iorimoe_five.jpg\" alt=\"\" width=\"50%\" /><br />视频链接：<a href=\"https://www.twitch.tv/moe_iori/videos\" target=\"_blank\">https://www.twitch.tv/moe_iori/videos</a><br />(视频本身需要订阅才能看，但是可以在视频列表，把鼠标放在视频上，预览里面的内容)<br /><br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 12-57-13 X_iorimoe_five.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/iorimoe_five/\" href=\"https://x.com/iorimoe_five/\" target=\"_blank\">https://x.com/iorimoe_five/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 18-40 iorimoe_five.jpg",".\\img\\0927_coser_profile\\2025-10-13 12-57-13 X_iorimoe_five.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":16},{"title_full":"【COS】2025-09-27 18-49 Etocha_cos","datetime":"2025-09-27 18:49","content":"<p>时间：2025-09-27 18:49<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 18-49 Etocha_cos.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 07-02-08 X_Etocha_cos.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/Etocha_cos/\" href=\"https://x.com/Etocha_cos/\" target=\"_blank\">https://x.com/Etocha_cos/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 18-49 Etocha_cos.png",".\\img\\0927_coser_profile\\2025-10-13 07-02-08 X_Etocha_cos.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":17},{"title_full":"【COS】2025-09-27 18-56 NekonekoJX","datetime":"2025-09-27 18:56","content":"<p>时间：2025-09-27 18:56<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 18-56 NekonekoJX.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-56-44 X_NekonekoJX.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/NekonekoJX/\" href=\"https://x.com/NekonekoJX/\" target=\"_blank\">https://x.com/NekonekoJX/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 18-56 NekonekoJX.png",".\\img\\0927_coser_profile\\2025-10-13 06-56-44 X_NekonekoJX.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":18},{"title_full":"【\"女主播\"】2025-09-27 19-00 sinonome_umi","datetime":"2025-09-27 19:00","content":"<p>时间：2025-09-27 19:00<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-00 sinonome_umi.jpg\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-15 03-19-36 X_sinonome_umi.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/sinonome_umi/\" href=\"https://x.com/sinonome_umi/\" target=\"_blank\">https://x.com/sinonome_umi/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-00 sinonome_umi.jpg",".\\img\\0927_coser_profile\\2025-10-15 03-19-36 X_sinonome_umi.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":19},{"title_full":"【\"女主播\"】承认了尘白禁区的推广，并且邀请观众去参加线下宣发活动","datetime":"2025-09-27 19:00","content":"<p>时间：2025-09-27 19:00<br /><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-00 sinonome_umi_record.png\" alt=\"\" width=\"50%\" /><br />【天明】自动翻译稍微歪了些，准确的翻译是：<br />このね(这个)オフラインプロモーション(线下宣发)も(也)あの(在)今してます(进行中)，ということで(就是这样)<br /><br />全文概译：<br />\"直播只剩五分钟了，大家，我正在玩的游戏叫做snowbreask，这个线下宣发也在进行中，就是这样，有兴趣的话可以去看看\"<br /><br />東雲うみ - 原文链接：<a href=\"https://youtu.be/9tB8J7o-sUM?t=6780\" target=\"_blank\">https://youtu.be/9tB8J7o-sUM?t=6780</a><br /><br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-15 03-19-36 X_sinonome_umi.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/sinonome_umi/\" href=\"https://x.com/sinonome_umi/\" target=\"_blank\">https://x.com/sinonome_umi/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-00 sinonome_umi_record.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":20},{"title_full":"【\"女主播\"】0927同一天还有解限机的推广","datetime":"2025-09-27 19:00","content":"<p>时间：2025-09-27 19:45<br /><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-45 sinonome_umi_mecha_break.png\" alt=\"\" width=\"50%\" /><br />【天明】这位東雲うみ\"女主播\"也是劳模，两天分别接了尘白和解限机的推广，共享COSER这一块❤️<br /><br />原文链接：<a href=\"https://x.com/sinonome_umi/status/1971828592540897637\" target=\"_blank\">https://x.com/sinonome_umi/status/1971828592540897637</a><br /><br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-15 03-19-36 X_sinonome_umi.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/sinonome_umi/\" href=\"https://x.com/sinonome_umi/\" target=\"_blank\">https://x.com/sinonome_umi/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-45 sinonome_umi_mecha_break.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":21},{"title_full":"【COS】2025-09-27 19-00 imo00_2","datetime":"2025-09-27 19:00","content":"<p>时间：2025-09-27 19:00<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-00 imo00_2.jpg\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 07-00-19 X_imo00_2.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/imo00_2/\" href=\"https://x.com/imo00_2/\" target=\"_blank\">https://x.com/imo00_2/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-00 imo00_2.jpg",".\\img\\0927_coser_profile\\2025-10-13 07-00-19 X_imo00_2.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":22},{"title_full":"【COS】2025-09-27 19-02 purinn_cos","datetime":"2025-09-27 19:02","content":"<p>时间：2025-09-27 19:02<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-02 purinn_cos.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-29-21 X_purinn_cos.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/purinn_cos/\" href=\"https://x.com/purinn_cos/\" target=\"_blank\">https://x.com/purinn_cos/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-02 purinn_cos.png",".\\img\\0927_coser_profile\\2025-10-13 06-29-21 X_purinn_cos.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":23},{"title_full":"【COS】2025-09-27 19-09 celia_aya","datetime":"2025-09-27 19:09","content":"<p>时间：2025-09-27 19:09<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-09 celia_aya.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 07-04-37 X_celia_aya.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/celia_aya/\" href=\"https://x.com/celia_aya/\" target=\"_blank\">https://x.com/celia_aya/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-09 celia_aya.png",".\\img\\0927_coser_profile\\2025-10-13 07-04-37 X_celia_aya.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":24},{"title_full":"【COS】2025-09-27 19-29 mitsuhashi_zZ","datetime":"2025-09-27 19:29","content":"<p>时间：2025-09-27 19:29<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-29 mitsuhashi_zZ.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-06-06 X_mitsuhashi_zZ.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/mitsuhashi_zZ/\" href=\"https://x.com/mitsuhashi_zZ/\" target=\"_blank\">https://x.com/mitsuhashi_zZ/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-29 mitsuhashi_zZ.png",".\\img\\0927_coser_profile\\2025-10-13 06-06-06 X_mitsuhashi_zZ.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":25},{"title_full":"【COS】2025-09-27 19-51 siru_0207","datetime":"2025-09-27 19:51","content":"<p>时间：2025-09-27 19:51<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-51 siru_0207.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-04-31 X_siru_0207.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/siru_0207/\" href=\"https://x.com/siru_0207/\" target=\"_blank\">https://x.com/siru_0207/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-51 siru_0207.png",".\\img\\0927_coser_profile\\2025-10-13 06-04-31 X_siru_0207.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":26},{"title_full":"【COS】2025-09-27 19-55 riri_thisway","datetime":"2025-09-27 19:55","content":"<p>时间：2025-09-27 19:55<br \\><img src=\".\\img\\0927_coser_on_x\\2025-09-27 19-55 riri_thisway.png\" alt=\"\" width=\"50%\" />(已被删除)<br />COSER主页⬇️<br /><img src=\".\\img\\0927_coser_profile\\2025-10-13 06-07-31 X_riri_thisway.png\" alt=\"\" width=\"50%\" /><br />链接：<a title=\"https://x.com/riri_thisway/\" href=\"https://x.com/riri_thisway/\" target=\"_blank\">https://x.com/riri_thisway/</a></p>","thumbnails":[".\\img\\0927_coser_on_x\\2025-09-27 19-55 riri_thisway.png",".\\img\\0927_coser_profile\\2025-10-13 06-07-31 X_riri_thisway.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":27},{"title_full":"【有男不玩ml吧】关于外服cos事件初步管控","datetime":"2025-09-27 19:42","content":"<p>时间：2025-09-27 19:42<br /><br />关于外服cos事件初步管控 - 黄🐔猎人<br /><a title=\"https://tieba.baidu.com/p/10077420371\" href=\"https://tieba.baidu.com/p/10077420371\" target=\"_blank\">https://tieba.baidu.com/p/10077420371/</a></p><p><img src=\".\\img\\0930_mumu_chongchong\\2025-09-27 19-42 有男不玩ml吧_贴吧_初步管控.jpg\" alt=\"\" width=\"50%\" /></p><p>9月27日晚，有男不玩ml吧发现舆情<br />并且快速响应，限制了尘白禁区国际服cos宣发的有关话题发酵扩散</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-27 19-42 有男不玩ml吧_贴吧_初步管控.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":28},{"title_full":"【尘白禁区吧】尘白禁区吧管理规则变更通知","datetime":"2025-09-27 19:56","content":"<p>时间：2025-09-27 19:56<br /><br />尘白禁区吧管理规则变更通知 - 视明日<br /><a title=\"https://tieba.baidu.com/p/10077450860\" href=\"https://tieba.baidu.com/p/10077450860\" target=\"_blank\">https://tieba.baidu.com/p/10077450860</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-27 19-56 尘白禁区吧_一刀切.jpg\" alt=\"\" width=\"50%\" /><br />而尘白禁区吧选择一刀切，不再允许任何的国际服的意见建议帖</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-27 19-56 尘白禁区吧_一刀切.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":29},{"title_full":"【珠海线下访问】珠海西山居 - xszlove","datetime":"2025-09-28 16:49","content":"<p>时间：2025-09-28 16:49<br /><br />珠海西山居 - xszlove<br /><a title=\"https://t.bilibili.com/1117597623421763590\" href=\"https://t.bilibili.com/1117597623421763590\" target=\"_blank\">https://t.bilibili.com/1117597623421763590/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 16-49 xszlove.png\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-28 16-49 xszlove.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":30},{"title_full":"【成都线下访问】关于诉求总结 - 墨翎丶","datetime":"2025-09-28 19:14","content":"<p>时间：2025-09-28 19:14<br /><br />墨翎丶，成都线下访问参与者之一，在有男不玩ml吧发布简单的访问小结<br /><a title=\"https://tieba.baidu.com/p/10080272673\" href=\"https://tieba.baidu.com/p/10080272673\" target=\"_blank\">https://tieba.baidu.com/p/10080272673/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 19-14 墨翎丶_关于诉求总结_full.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-28 19-14 墨翎丶_关于诉求总结_full.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":31},{"title_full":"【有男不玩ml吧】关于外服cos事件延长管制公告","datetime":"2025-09-28 20:00","content":"<p>时间：2025-09-28 20:00<br /><br />关于外服cos事件延长管制公告 - 黄🐔猎人<br /><a href=\"https://tieba.baidu.com/p/10080377349\" target=\"_blank\">https://tieba.baidu.com/p/10080377349</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 20-00 有男不玩ml_贴吧_延长管制.jpg\" alt=\"\" width=\"50%\" /><br />有男不玩ml吧延长了吧里的帖子管控，限制滑坡和节奏扩散</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-28 20-00 有男不玩ml_贴吧_延长管制.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":32},{"title_full":"【尘白Q群】米饼在Q群发布QA回复，说有\"不实消息\"","datetime":"2025-09-28 22:17","content":"<p>时间：2025-09-28 22:17<br /><br />米饼(尘白官方运营)在Q群发布QA回复，说有\"不实消息\"<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复.jpg\" alt=\"\" width=\"50%\" /><br /><br />原文链接：<br />(Q群消息，原文无法链接)<br/>图片链接(米饼)：<br /><a href=\"https://t.bilibili.com/1118103291383775232/\" target=\"_blank\">https://t.bilibili.com/1118103291383775232/</a></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":33},{"title_full":"有男不玩ml吧造谣造谣造谣造谣","datetime":"2025-09-28 23:00","content":"<p>时间：2025-09-28 23:00<br /><br />米饼(尘白官方运营)在Q群发布QA回复，说有\"不实消息\"<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复.jpg\" alt=\"\" width=\"30%\" /><br /><br />米饼公告发出后的1小时<br /><br />有男不玩ml吧务组，迅速召开吧务频道会议，目的是找到神尘(墨翎丶)(成都线下访问者之一)(\"诉求总结\"发帖人)(米饼指责的不实事件的当事人)，明确真实信息，尝试\"确认真实信息，抹平信息差\"<br />(有男不玩ml吧的所有会议都是对外公开的，任何人(包括访客)都可以直接旁听)<br />(会议频道位于QQ频道的\"有男不玩ml吧专属频道\")<br />(为防止\"地理隔离\"，频道仅用作语音房)<br /><br />时间：2025-10-01 02:39<br /><br />但是被B站UP主<br />[我是霁霰粗]和[自爆小纸盒]<br />一口咬死吧务组会议为\"造谣会议\"，\"毁灭派\"<br />(有男不玩ml吧的所有会议都是对外公开的，任何人(包括访客)都可以直接旁听)<br />(会议频道位于QQ频道的\"有男不玩ml吧专属频道\")<br />(为防止\"地理隔离\"，频道仅用作语音房)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-10-01 02-39-55 &ldquo;毁灭派&ldquo; - 自爆小纸盒.png\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-29 10-59-52 不仅造谣还要掌控尘白官方？赛博皇帝这一块，有男不玩传奇 - 我是霁霰粗.jpg\" alt=\"\" width=\"30%\" /><br /><br />被自爆小纸盒引用的掐头去尾的视频⬇️<br />\"赛博皇帝毁灭派\"(自爆小纸盒)：<br /><a href=\"https://www.bilibili.com/video/BV1McnmzUEuB/\" target=\"_blank\">https://www.bilibili.com/video/BV1McnmzUEuB/</a><br />不仅造谣还要掌控尘白官方？赛博皇帝这一块，有男不玩传奇(我是霁霰粗)<br /><a href=\"https://www.bilibili.com/video/BV1bKHcz9EB8/\" target=\"_blank\">https://www.bilibili.com/video/BV1bKHcz9EB8/</a><br /><br />完整的吧务会议⬇️<br />木木动态中的极端ml团体录音 赛博土皇帝有男不玩ml吧务9.28造谣会议录音(我是霁霰粗)：<br /><a href=\"https://www.bilibili.com/video/BV1pwnrzRE9p/\" target=\"_blank\">https://www.bilibili.com/video/BV1pwnrzRE9p/</a><br />(相同的，更清晰的版本)9月28日有麻频道录像 - (超级米黑黑子)<br /><a href=\"https://www.bilibili.com/video/BV1FCnqz3EEX?t=122.9\" target=\"_blank\">https://www.bilibili.com/video/BV1FCnqz3EEX?t=122.9</a>(前面2分钟为上传者添加的切片，非实际时间轴，因此t=122.9自动跳过)<br /><br />【天明】(注：背景音里有几个人在小声说话(时不时带脏话)，那是录视频的人的声音，不是会议里的声音)<br /><br />吧务会议的字幕(已去除画外音)⬇️<br /><a href=\".\\img\\0930_mumu_chongchong\\木木动态中的极端ml团体录音%20赛博土皇帝有男不玩ml吧务9.28造谣会议录音.ass\" target=\"_blank\">木木动态中的极端ml团体录音 赛博土皇帝有男不玩ml吧务9.28造谣会议录音.ass</a><br />吧务会议的字幕(已去除画外音)⬇️<br /><a href=\".\\img\\0930_mumu_chongchong\\9月28日有麻频道录像.ass\" target=\"_blank\">9月28日有麻频道录像.ass</a><br /><br />【天明】会议时间轴<br />这个会议有两点我要先明确<br /><a href=\".\\img\\0930_mumu_chongchong\\9月28日有麻频道录像.ass\" target=\"_blank\" rel=\"noopener\">9月28日有麻频道录像.ass</a><br />(注：背景音里有几个人在小声说话(时不时带脏话)，那是录视频的人的声音，不是会议里的声音)<br />1、【会议开始】从会议一开始，[02:38]右方之火(吧务)，便在会议开头明确了神尘(墨翎丶)(成都线下访问者之一)(\"诉求总结\"发帖人)(米饼指责的不实事件的当事人)的\"木木明天会表态\"的这件事情1️⃣是不实信息(传谣)<br />1、【会议流程】所以这个会议从一开始的目的就是2️⃣和其他参与过线下的人确认线下访问中可以交叉验证的事实3️⃣以及讨论如何弥补和减轻谣言造成的后续影响<br />1、【会议结果】会议结果，吧务(汐尘紫苑)带头4️⃣发布澄清帖，并让神尘(当事人)，以及其他参与过线下的人(询_询)(海姆达尔分笑川)，在帖子下补充成都线下访问中更准确的信息，尝试抹平信息差，并做好后续弥补沟通裂痕的准备<br /><br />2.1、关于会议中爆典，有人说\"让米饼把他说的话吃回去\"<br />2.1、在会议过程中，[13:48]田中飞马(正式吧务)中途发言，说了\"第一个思路，想办法让米饼，让米饼把他说的话吃回去\"<br />2.1、并且，在[14:49]田中飞马(正式吧务)再次爆典：\"你要么说自己自己自己弄错了，要么就只能强行让米饼把东西吃回去\"<br />2.1、此发言确实属实，且极端偏激，必须谴责，这是不容否认，不容置疑的<br />2.1、话就是泼出去的水，每个人都理应为自己的失言给出道歉，更何况是以吧务的身份爆典。(但目前来看，道歉是没有的)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 23-00 田中飞马_正式吧务.png\" alt=\"\" width=\"30%\" /><br /><br />2.2、纵观整个吧务会议，从结果来看，其他吧务们，以及整个吧务组，全程都保持了理性和克制，没有推脱过责任，也根本没有考虑和采纳过这个极端方案，都是在就事论事地进行讨论<br />2.2、如果吧务组真有这么极端，那么互联网上，有男不玩ml吧务组在贴吧(以及其他平台)煽动(\"让米饼把他说的话吃回去\")的事实消息早该满天飞了<br /><br />2.3 而事实上，从事件开始(0927)到木木点草(0930)的这段时间，吧里的大部分人(基于大部分帖子和回复的事实，如果不信可以自己去贴吧按时间查找)都认为这次宣发事件的主要责任人是xsj，而不是lhm<br /><br />3、另外，神尘(当事人)在这次讨论上，确实是有多次在推脱责任<br />3、但最后也是在吧务组的督促下，与其他参与线下的人确认了真实信息，最后与吧务共同发表了澄清帖<br />今日尘白官方声明搬运如下 - &nbsp;汐尘紫苑<br /><a href=\"https://tieba.baidu.com/p/10080832442\" target=\"_blank\">https://tieba.baidu.com/p/10080832442</a><br /><br />【天明】论证与引用<br /><a href=\".\\img\\0930_mumu_chongchong\\9月28日有麻频道录像.ass\" target=\"_blank\" rel=\"noopener\">9月28日有麻频道录像.ass</a><br />(注：背景音里有几个人在小声说话(时不时带脏话)，那是录视频的人的声音，不是会议里的声音)<br /><br />1️⃣吧务组从一开始就对照了公告，与神尘(当事人)\"木木明天会表态\"的不实信息，明确神尘(当事人)(传谣)属于事实<br /><br />[02:45]右方之火(吧务)\"你让我说下他的原话啊...\"，\"你看，这已经完全不符\"<br />[06:45]汐尘紫苑(吧务)\"我现在很无语啊\"，\"我先说，你的意思是说他给你传达的消息是说，没有确定说要发公告对吧？\"; 神尘(当事人)\"对\"; 汐尘紫苑(吧务)\"那你为什么要写出来？那样写出来？\"<br />[12:59]浮莲幽梦(应该是吧务)\"首先神尘的发的那个帖说的是，明天明确会有一个表态，但现在米饼给的给的公告说的是，明天不一定会有表态\"；汐尘紫苑(吧务)\"不是不一定，他的意思是是直接说是不实信息\"；田中飞马(应该是吧务)\"对，他是不实信息，意思就是明明天肯定不会有\"<br />[15:15](吧务组)\"他要是不发公告是另一件事 ，就咱们先做好咱们的\"，\"咱们要做的是确保咱们这边的准确性，不能传假消息\"，\"不管怎么样 ，先把信息澄清一遍吧\"，\"那最起码因为这件事也明确知道了啊，木木不会发了就可以了，把这事着实了\"<br />[32:14]不如龙王一喷(有男不玩ml吧主)\"这事得认\"，(吧务)\"不好说不好说有没有大问题啊龙王\"了；(吧务组)\"你别给我犟这种东西，认，有没有问题是的事后的事，我就问你认不认\"；(吧务)\"那必须得认了\"；(吧务组)\"那不就完了\"<br />[32:40](吧务组)\"就事论事好不好，犯错了你就要认啊\"<br /><br />2️⃣和其他参与过线下的人确认线下访问中可以交叉验证的事实<br /><br />[07:17]右方之火(吧务)\"你还能找到吗(其他参与线下的人)，互相联系一下，然后跟集体让他发个公告，说这些是你们搞错了，很不好意思\"<br />[35:17](吧务组)\"你们就是询询神尘还有锁灵，确认一下这个原话是不是这样\"；\"你自己得先把这确认掉才能讨论别的\"；\"这种事情必须得确认的\"<br />[38:00](好好锻炼)(另一位声称是参加线下访问的人)(目前身份无法坐实)另外确认了，木木确实因为去年发动态，被骂了\"当时我们我们跟木木说的就是，我们希望你就是作为一个制作人的身份能够发出来，官方的能够能够以他的那个账号来发，就是他他说因为他上次确实，因为就是因为去年嘛发的这个，跟这个很类似的一个东西，他被骂了，就是如果他再用这个东西发，有可能也不是有可能吧，就可能有被换掉的风险，反正就基本上是这种意思，所以他不太好用自己的账号来发\"；\"反正他当时也在扣脑壳，也不知道该怎么弄\"；\"他说他会想办法就是把这个这种消息传达出去，可能可能是在最后，对，可能是最后误解了\"<br />[39:30](好好锻炼)(另一位声称是参加线下访问的人)(目前身份无法坐实)谈到他们在临走前专门问了木木什么东西能说什么东西不能说，而木木说了他们聊的很多都是不能说的，这也是信息闭锁的原因\"就因为当时我们跟木木聊了非常多的东西，那我们在我在我们在走之前就专门问了木木，什么东西能说，什么东西不能说，他说我们聊的东西很多都是不能说的，就是我我包括我刚才说的这个东西，就公开出来到底好不好，这个也无法进行，因为这个得说，说白了就我刚才说的东西，如果不是因为出了这件事，我是不可能会说的，这东西没不一定，就这个东西不知道放出来好不好，对\"<br /><br />3️⃣讨论如何弥补和减轻谣言造成的后续影响<br /><br />[08:40]右方之火(吧务)\"我刚刚就在说呀，你们联合出个公告，这样子，先给大家道歉，说自己这一次表达那个没没表达清楚，理解有误，给大家添麻烦了，不好意思，然后给狸花猫道个歉，给各位吧友道个歉，这样子\"\"<br />[16:05]不如龙王一喷(有男不玩ml吧主)，安抚情绪，并明确应对方案，\"你们俩就先别变蔫儿，目前这个问题还是比较好解决的，因为现在火气能这么大的原因，是因为他不发，你你俩先把自己这个事先摆明白，整明白了，就是说你这个是怎么经手的，也说清楚了，就是说你们是几个人商量好，然后经过你手这个事情你也可以说出来啊，你们一起一起表个态，不是说如果犯错误了就不可以挽回啊\"<br />[24:35]不如龙王一喷(有男不玩ml吧主)\"神尘你现在就把这个落实，你就你现在把他说的原话落实在文字上，然后你发出来啊\"<br />[31:26]不如龙王一喷(有男不玩ml吧主)\"明天就是他到底发不发公告，这个事我们管不到，就是我们这边消息有问题，我们解释一下，我们做到这\"<br /><br />4️⃣发布澄清帖<br /><br />[13:58]田中飞马(吧务)\"第二个情况就是你们就是神尘和询询，你们联合你们重新再发一个帖子，说自己之前表达有问题，然后实际上当时的原话是怎么样的，重新进一次进行一次澄清，目前只有这么两个方法\"<br />[18:45]邪能松鼠(应该是吧务)，提议引用官方QA，然后置顶澄清帖，\"就这个这个这个直接把这个帖子一置顶，官方QA发一楼，然后澄那个线下老哥的澄清，完事了，大家伙就都知道怎么回事了，再有谁对官方不满，或者对对其他不满，就算是后来讨讨论的了\"<br />[40:23]不如龙王一喷(有男不玩ml吧主)让汐尘紫苑(吧务)去发澄清帖\"汐尘去发帖，然后呢剪接神尘去跟着\"<br /><br />【天明】完整的吧务会议时间轴<br /><a href=\".\\img\\0930_mumu_chongchong\\9月28日有麻频道录像.ass\" target=\"_blank\" rel=\"noopener\">9月28日有麻频道录像.ass</a><br />[02:38 - 03:32]右方之火(吧务)，在开头便明确了神尘(当事人)\"木木明天会表态\"的这件事情是传谣1️⃣<br />[04:57 - 05:47]神尘(当事人)自己明确了\"木木明天会表态\"确实是自己加上去的，但过程中多次尝试为自己找补<br />[05:47 - 06:06]神尘(当事人)为\"社区规则图\"的声明，给自己找补<br />[06:06 - 06:45]神尘(当事人)说明COS宣发的问题和外服审核权的问题，目前(当时)并没有官方结论<br />[06:45 - 07:03]汐尘紫苑(吧务)再次要求神尘(当事人)进行确认，神尘(当事人)自己确认了\"木木明天会表态\"的这件事情确实算传谣1️⃣<br />[07:03 - 07:17]神尘(当事人)踢皮球，说\"我当时发了这句话的时候，额，大家都说的就再加一个补充吧\"<br />[07:17 - 07:40]右方之火(吧务)，提议能否再次找到参与线下访问的人，集体发个澄清真实信息的公告2️⃣<br />[07:40 - 07:58]浮莲幽梦(应该是吧务)，提议说把传谣的帖子先删了，被吧务组迅速否决，防止死无对证<br />[07:58 - 08:10]汐尘紫苑(吧务)再次确认传谣的内容1️⃣<br />[08:10 - 08:30]不如龙王一喷(有男不玩ml吧主)，讨论米饼算不算木木表态，被吧务组迅速否决<br />[08:30 - 09:00](吧务组)向神尘(当事人)提议，先找到其他参与线下的人，并且再联合重新发一个公告，纠正之前的错误3️⃣<br />[09:00 - 10:10]询_询(线下老哥)出现，但是摆出的事实再次出现较大出入<br />[10:10 - 11:50]神尘(当事人)提到了会议中，木木说过因为发动态被上面骂过很多次了<br />[11:50 - 12:02]询_询回想有关\"触到霉头\"的信息<br />[12:02 - 12:50]汐尘紫苑(吧务)，问能不能，但神尘(当事人)表示他们没拉群，因为不想被人指控是小团体<br />[12:50 - 13:48](吧务组)再次明确米饼具体指控的\"不实信息\"1️⃣<br />[13:48 - 13:58]【爆典】田中飞马(吧务)说\"第一个思路，想办法让米饼，让米饼把他说的话吃回去\"<br />[13:58 - 14:46]田中飞马(应该是吧务)说\"第二个情况就是你们就是神尘和询询，你们联合你们重新再发一个帖子，说自己之前表达有问题，然后实际上当时的原话是怎么样的，重新进一次进行一次澄清，目前只有这么两个方法\"4️⃣<br />[14:46 - 15:00]【爆典】田中飞马(吧务)说\"你要么说自己自己自己弄错了，要么就只能强行让米饼把东西吃回去\"<br />[15:00 - 15:15](吧务组)明确，旧的帖子不要碰<br />[15:15 - 15:37](吧务组)：\"他要是不发公告是另一件事 ，就咱们先做好咱们的\"，\"咱们要做的是确保咱们这边的准确性，不能传假消息\"，\"不管怎么样 ，先把信息澄清一遍吧\"，\"那最起码因为这件事也明确知道了啊，木木不会发了就可以了，把这事着实了\"1️⃣<br />[15:37 - 15:52](吧务组)：\"另一件事就是木木不回应，然后起节奏，那是他们的事\"<br />[15:52 - 16:05]提到了(海姆达尔分笑川)，另一位参加过线下访问的人<br />[16:05 - 17:20]不如龙王一喷(有男不玩ml吧主)，安抚情绪，并明确应对方案，\"你们俩就先别变蔫儿，目前这个问题还是比较好解决的，因为现在火气能这么大的原因，是因为他不发，你你俩先把自己这个事先摆明白，整明白了，就是说你这个是怎么经手的，也说清楚了，就是说你们是几个人商量好，然后经过你手这个事情你也可以说出来啊，你们一起一起表个态，不是说如果犯错误了就不可以挽回啊\"3️⃣<br />[17:20 - 17:40]不如龙王一喷(有男不玩ml吧主)，明确表态\"如果有人要借此机会清算冲锋派和线下的，我不接受啊\"<br />[17:40 - 18:45]关于吧里有人说神尘(当事人)是造谣狗的问题<br />[18:45 - 20:23]邪能松鼠(应该是吧务)，提议引用官方QA，然后置顶澄清帖，\"就这个这个这个直接把这个帖子一置顶，官方QA发一楼，然后澄那个线下老哥的澄清，完事了，大家伙就都知道怎么回事了，再有谁对官方不满，或者对对其他不满，就算是后来讨讨论的了\"4️⃣<br />[20:23 - 21:10]提到了1107(尘白2.3版本主线剧情出现大量辱角色桥段的事件)，也出现过类似的乌龙<br />[21:10 - 22:36](吧务组)，明确澄清帖的内容，然后汐尘紫苑(吧务)去负责发布澄清帖<br />[22:36 - 22:50]提到了当时成都线下会议是不让带手机的，而且会议进行了很长的时间，因此如果想完全重现当时木木的原话，不太容易<br />[22:50 - 23:56]询询和神尘(当事人)<br />[23:56 - 24:35]不如龙王一喷(有男不玩ml吧主)，明确了现在的节奏很大<br />[24:35 - 31:26](吧务组)，督促神尘(当事人)，回写木木的原话，去完善澄清帖，并让其他线下人员进行二次确认<br />[31:26 - 31:34]不如龙王一喷(有男不玩ml吧主)\"明天就是他到底发不发公告，这个事我们管不到，就是我们这边消息有问题，我们解释一下，我们做到这\"3️⃣<br />[31:34 - 32:14]讨论澄清帖内容<br />[32:14 - 32:35]不如龙王一喷(有男不玩ml吧主)\"这事得认\"，吧务组\"不好说不好说有没有大问题啊龙王\"；\"你别给我犟这种东西，认，有没有问题是的事后的事，我就问你认不认\"；\"那必须得认了\"；\"那不就完了\"1️⃣<br />[32:35 - 32:40](吧务组)\"就事论事好不好，犯错了你就要认啊\"1️⃣<br />[32:40 - 33:50]讨论澄清帖内容<br />[33:50 - 34:43]锁灵(另一位参加线下访问的人)出场<br />[34:43 - 35:17]讨论澄清帖内容<br />[35:17 - 36:00](吧务组)\"你们就是询询神尘还有锁灵，确认一下这个原话是不是这样\"；\"你自己得先把这确认掉才能讨论别的\"；\"这种事情必须得确认的\"2️⃣<br />[36:00 - 37:40](吧务组)与(锁灵)确认有关\"木木表态\"的事实细节<br />[37:38 - 38:00]又来一个(好好锻炼)(声称是另一位参加线下访问的人)(目前身份无法坐实)，(好好锻炼)说\"基本上是原话，基本上没有任何问题\"2️⃣<br />[38:00 - 39:30](好好锻炼)(另一位声称是参加线下访问的人)(目前身份无法坐实)另外确认了，木木确实因为去年发动态，被骂了\"当时我们我们跟木木说的就是，我们希望你就是作为一个制作人的身份能够发出来，官方的能够能够以他的那个账号来发，就是他他说因为他上次确实，因为就是因为去年嘛发的这个，跟这个很类似的一个东西，他被骂了，就是如果他再用这个东西发，有可能也不是有可能吧，就可能有被换掉的风险，反正就基本上是这种意思，所以他不太好用自己的账号来发\"；\"反正他当时也在扣脑壳，也不知道该怎么弄\"；\"他说他会想办法就是把这个这种消息传达出去，可能可能是在最后，对，可能是最后误解了\"2️⃣<br />[39:30 - 40:23](好好锻炼)(另一位声称是参加线下访问的人)(目前身份无法坐实)谈到他们在临走前专门问了木木什么东西能说什么东西不能说，而木木说了他们聊的很多都是不能说的，这也是信息闭锁的原因\"就因为当时我们跟木木聊了非常多的东西，那我们在我在我们在走之前就专门问了木木，什么东西能说，什么东西不能说，他说我们聊的东西很多都是不能说的，就是我我包括我刚才说的这个东西，就公开出来到底好不好，这个也无法进行，因为这个得说，说白了就我刚才说的东西，如果不是因为出了这件事，我是不可能会说的，这东西没不一定，就这个东西不知道放出来好不好，对\"2️⃣<br />[40:23 - 41:03]不如龙王一喷(有男不玩ml吧主)让汐尘紫苑(吧务)去发澄清帖4️⃣<br />[41:03 - 41:03]视频结束<br /><br />【天明】<br />1、\"造谣会议\"，说句不好听的，如果会议里的内容真是所谓的\"造谣会议\"，那这视频早该被各路营销号做成切片，然后肉喇叭们传遍整个互联网了<br />1、这群人就是赌观众压根不会点进去看里面的完整内容，光靠个标题，猛猛地给有男不玩ml吧务组定罪<br /><br />2、\"让米饼把他的话吃回去\"确实偏激不对，但吧务组从来没有考虑和采纳过这个方案<br />2、因为从事件开始(0927)到木木点草(0930)的这段时间，吧里的大部分人(基于大部分帖子和回复的事实，如果不信可以自己去贴吧按时间查找)都认为这次宣发事件的主要责任人是xsj，而不是lhm<br />2、并且整个会议，吧务组一直都是坚定确认(\"木木明天会回应\")此事为发布谣言的事实，并让吧务带头发布置顶澄清帖，尝试弥补沟通裂痕<br /><br />【天明】<br />如果有其他角度的一手资料需要补充(反对的也可以)，可以发送至overdawn233@gmail.com</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-10-01 02-39-55 “毁灭派“ - 自爆小纸盒.png",".\\img\\0930_mumu_chongchong\\2025-09-29 10-59-52 不仅造谣还要掌控尘白官方？赛博皇帝这一块，有男不玩传奇 - 我是霁霰粗.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":34},{"title_full":"【有男不玩ml吧】➡️[自证] 成都线下QA澄清帖","datetime":"2025-09-28 23:40","content":"<p>时间：2025-09-28 23:40<br /><br />在吧务会议结束后，吧务迅速发布澄清帖，尝试与尘白官方抹平信息差，修复沟通裂痕<br />(有男不玩ml吧的所有会议都是对外公开的，任何人(包括访客)都可以直接旁听) <br />(会议频道位于QQ频道的\"有男不玩ml吧专属频道\")<br /><br />今日尘白官方声明搬运如下 - &nbsp;汐尘紫苑<br /><a title=\"https://tieba.baidu.com/p/10080832442\" href=\"https://tieba.baidu.com/p/10080832442\" target=\"_blank\">https://tieba.baidu.com/p/10080832442</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 23-40 澄清帖_汐尘紫苑_full.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-28 23-40 澄清帖_汐尘紫苑_full.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":35},{"title_full":"【注解🖋️】【天明】【成都线下访问结果】段落小结","datetime":"2025-09-28 23:59","content":"<p>时间：2025-09-28 22:17<br /><br />尘白官方运营(米饼)下场指责存在不实消息<br />(这时候玩家都表示理解，并希望揪出内鬼)<br /><br />【原图】：<br />【尘白官方运营(米饼) - 针对不实消息】⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复.jpg\" alt=\"\" width=\"50%\" /><br />【墨翎丶】⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 诉求总结_成都.jpg\" alt=\"\" width=\"10%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br /><br />【成都对比】<br />1、<br />\"国服与国际服平级运营\"<br />✅<br />[事实][1/5]<br /><br />2、<br />\"木木明确了会表态，只是需要去总结一下内容，最后期限在明天把表态发出来\"<br />⚠️<br />[不实]。木木在会议上原话说的是\"我会想想办法的，尽快给答复\"，墨翎丶以为木木会很快出来表态并回应事件<br /><br />且在墨翎丶的总结发出后，官方立刻跳反指责说这是不实消息<br />1、\"【网传的明天会有公告】属于不实消息哦\" - 米饼(尘白禁区官方运营人员)<br />2、\"这份FAQ(米饼发的，但内容基本上就是对墨翎丶的FAQ的细节澄清，没有任何新内容)即为我们目前能够沟通争取到的所有事情进展...\" - 米饼(尘白禁区官方运营人员)<br /><br />【天明】<br />\"补充说明：【网传的明天会有公告】属于不实信息哦\"，米饼还要特意再次单独标注出来，我只能说官方的态度很明显了<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复_网传的明天会有公告.jpg\" alt=\"\" width=\"50%\" /><br />【天明】[墨翎丶]事发当天补充发布的对原话的澄清，带有另一个成都线下参与者的担保⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 23-51 墨翎丶_澄清原话.png\" alt=\"\" width=\"50%\" /><br /><br />3、<br />\"英韩cv会一直匿名，日区cv后续处理未知\"<br />✅<br />[事实][2/5]<br /><br />4、<br />\"尘白聊天频道的屏蔽词库会动态刷新\"<br />✅<br />[事实][3/5]<br /><br />5、<br />\"Q：关于社区规则图能否表态？\"，\"A：出于厂家立场不能明确表态，但是他非常感谢这些社区的玩家\"<br />⚠️<br />[不实]。后续官方撕毁了尘白的社区规则图<br /><br />【天明】<br />[总结]✅3 ⚠️2<br /><br />图片链接(米饼)：<br /><a href=\"https://t.bilibili.com/1118103291383775232/\" target=\"_blank\">https://t.bilibili.com/1118103291383775232/</a><br /><br />原文链接(墨翎丶)：<br /><a href=\"https://tieba.baidu.com/p/10080272673\" target=\"_blank\">https://tieba.baidu.com/p/10080272673</a></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复.jpg",".\\img\\0930_mumu_chongchong\\2025-09-28 诉求总结_成都.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":36},{"title_full":"【成都线下访问结果】9.28沟通交流回忆 (海姆达尔分笑川)","datetime":"2025-09-29 15:11","content":"<p>时间：2025-09-29 15:11<br /><br />9.28沟通交流回忆 - 海姆达尔分笑川<br /><br />原文链接：<br /><a href=\"https://tieba.baidu.com/p/10082701414/\" target=\"_blank\" >https://tieba.baidu.com/p/10082701414/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-29 15-11 海姆达尔分笑川_0928交流回忆_full.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-29 15-11 海姆达尔分笑川_0928交流回忆_full.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":37},{"title_full":"【珠海线下访问结果】珠海组线下总结 - xszlove","datetime":"2025-09-29 23:50","content":"<p>时间：2025-09-29 23:50<br /><br />珠海组线下总结 - xszlove<br /><br />原文链接：<br /><a href=\"https://t.bilibili.com/1118077160840495125/\" target=\"_blank\" >https://t.bilibili.com/1118077160840495125/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-29 17-27 xszlove.png\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-29 23-50 珠海线下总结_xszlove_full.png\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-29 17-27 xszlove.png",".\\img\\0930_mumu_chongchong\\2025-09-29 23-50 珠海线下总结_xszlove_full.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":38},{"title_full":"【天明】0929 小结","datetime":"2025-09-29 23:59","content":"<p>时间：2025-09-29 23:59<br /><br />至此，事件节奏已经快基本结束了，毕竟核心问题\"cos宣发\"已经有了基本的定论<br /><br />当然，从0930开始，有人要下场搞大事了</p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":39},{"title_full":"【木木】成都，珠海，与我实际表述的意思确实有较大出入","datetime":"2025-09-30 01:31","content":"<p>时间：2025-09-30 01:31<br /><br />成都，珠海，\"与我实际表述的意思确实有较大出入\" - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118103291383775232/\" target=\"_blank\" >https://t.bilibili.com/1118103291383775232/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 01-31 木木_有较大出入_full.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 01-31 木木_有较大出入_full.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":40},{"title_full":"【天明】表述对比","datetime":"2025-09-30 01:32","content":"<p>时间：2025-09-30 01:31<br /><br />【成都】 ❗木木指控\"发现会议内容在传播的过程中被一定程度曲解，造成了一些不必要的误解与争议，于是让米饼根据会议内容整理了一份FAQ发出去、解释清楚\"<br />【原图】：<br />【尘白官方运营(米饼) - 针对不实消息】⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复.jpg\" alt=\"\" width=\"50%\" /><br />【墨翎丶】⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 诉求总结_成都.jpg\" alt=\"\" width=\"10%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br />【成都对比】<br />1、<br />\"国服与国际服平级运营\"<br />✅<br />[事实][1/5]<br /><br />2、<br />\"木木明确了会表态，只是需要去总结一下内容，最后期限在明天把表态发出来\"<br />⚠️<br />[不实]。木木在会议上原话说的是\"我会想想办法的，尽快给答复\"，墨翎丶以为木木会很快出来表态并回应事件<br /><br />且在墨翎丶的总结发出后，官方立刻跳反指责说这是不实消息<br />1、\"【网传的明天会有公告】属于不实消息哦\" - 米饼(尘白禁区官方运营人员)<br />2、\"这份FAQ(米饼发的，但内容基本上就是对墨翎丶的FAQ的细节澄清，没有任何新内容)即为我们目前能够沟通争取到的所有事情进展...\" - 米饼(尘白禁区官方运营人员)<br /><br />【天明】<br />\"补充说明：【网传的明天会有公告】属于不实信息哦\"，米饼还要特意再次单独标注出来，我只能说官方的态度很明显了<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 22-17-25 米饼回复_网传的明天会有公告.jpg\" alt=\"\" width=\"50%\" /><br />【天明】[墨翎丶]事发当天补充发布的对原话的澄清，带有另一个成都线下参与者的担保⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-28 23-51 墨翎丶_澄清原话.png\" alt=\"\" width=\"50%\" /><br /><br />3、<br />\"英韩cv会一直匿名，日区cv后续处理未知\"<br />✅<br />[事实][2/5]<br /><br />4、<br />\"尘白聊天频道的屏蔽词库会动态刷新\"<br />✅<br />[事实][3/5]<br /><br />5、<br />\"Q：关于社区规则图能否表态？\"，\"A：出于厂家立场不能明确表态，但是他非常感谢这些社区的玩家\"<br />⚠️<br />[不实]。后续官方撕毁了尘白的社区规则图<br /><br />【天明】<br />[总结]✅3 ⚠️2<br /><br />图片链接(米饼)：<br /><a href=\"https://t.bilibili.com/1118103291383775232/\" target=\"_blank\" rel=\"noopener\">https://t.bilibili.com/1118103291383775232/</a><br /><br />原文链接(墨翎丶)：<br /><a href=\"https://tieba.baidu.com/p/10080272673\" target=\"_blank\" rel=\"noopener\">https://tieba.baidu.com/p/10080272673</a><br /><br />【珠海】 ❗木木指控\"部分珠海来访玩家再次将沟通内容整理在公开平台进行发布，经核实该内容依旧存在大量主观理解，与我实际表述的意思确实有较大出入\"<br />❔但出入究竟在哪？木木为什么一句不提呢？好难猜啊<br />❔澄清事情真相不是官方应该做的吗？澄清真相对尘白玩家负责吗？那现在是谁在当谜语人呢？<br /><br />【珠海对比】<br />1、<br />\"珠海西山居并没有国际服业务\"<br />✅<br />事实<br /><br />2、<br />\"Discord社区的处理，木木表示会有同学进行跟进\"<br />❔<br />有出入？<br /><br />3、<br />\"大家的问题，他们都会持续关注，尽力为大家解决\"<br />❔<br />有出入？<br /><br />4、<br />\"国际服未来宣发将增加审核流程\"<br />❔<br />有出入？<br /><br />5、<br />\"其他的问题，LHM也在尽力去推进，尽力争取能够给大家一个满意的结果\"<br />❔<br />有出入？<br /><br />指控(木木_MuMu__)：<br /><a href=\"https://t.bilibili.com/1118103291383775232/\" target=\"_blank\">https://t.bilibili.com/1118103291383775232/</a><br />珠海的访问结果(xszlove)：<br /><a href=\"https://t.bilibili.com/1118077160840495125/\" target=\"_blank\">https://t.bilibili.com/1118077160840495125/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 01-31 木木_有较大出入_full.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-29 23-50 珠海线下总结_xszlove_full.png\" alt=\"\" width=\"50%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":41},{"title_full":"【木木】[置顶]希望玩家和厂商能够互相理解！也请部分\"玩家\"停止恶意攻击行为","datetime":"2025-09-30 01:51","content":"<p>时间：2025-09-30 01:51<br /><br />[置顶]希望玩家和厂商能够互相理解！也请部分\"玩家\"停止恶意攻击行为 - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118103291383775232#reply277552352048\" target=\"_blank\" >https://t.bilibili.com/1118103291383775232#reply277552352048</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 01-51 木木_希望玩家和厂商能够互相理解.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 01-51 木木_希望玩家和厂商能够互相理解.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":42},{"title_full":"【木木】我并不认同\"有男不玩ml吧\"的部分极端小团体的做法和行为","datetime":"2025-09-30 01:54","content":"<p>时间：2025-09-30 01:54<br /><br />我并不认同\"有男不玩ml吧\"的部分极端小团体的做法和行为 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 01-54 木木_有男不玩ml吧部分极端小团体.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 01-54 木木_有男不玩ml吧部分极端小团体.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":43},{"title_full":"【尘白禁区吧】同步定罪有男不玩ml吧","datetime":"2025-09-30 02:06","content":"<p>时间：2025-09-30 02:06<br /><br />尘白禁区吧同步发布置顶集中贴(公告)<br /><br />但不知为何把木木原文中的\"有男不玩lm吧部分极端小团体\"，直接改为了\"有男不玩ml吧小团体\"<br /><br />并且\"对谣言源头社区有男不玩ml吧的相关内容将从严管控\"<br />(实际上就是一刀切，有男不玩ml吧所有尝试沟通，明确哪些是\"谣言\"，明确何为\"极端小团体\"的帖子都被直接删除)<br /><br />集中贴丨关于近期&ldquo;线下访问&rdquo;相关讨论的临时说明与处置<br /><a href=\"https://tieba.baidu.com/p/10084115817\" target=\"_blank\">https://tieba.baidu.com/p/10084115817/</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-06 尘白禁区吧_有男不玩ml吧小团体.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-06 尘白禁区吧_有男不玩ml吧小团体.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":44},{"title_full":"【木木】今晚不睡了","datetime":"2025-09-30 02:10","content":"<p>时间：2025-09-30 02:10<br /><br />今晚不睡了，需要有人替蒙受不白之冤的尘白玩家主持公道！ - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118113294404550665\" target=\"_blank\" >https://t.bilibili.com/1118113294404550665</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-10 木木_今晚不睡了.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-10 木木_今晚不睡了.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":45},{"title_full":"【天明】此刻开始，木木开始了先攻，且拒绝对任何问题进行说明和实质性回应","datetime":"2025-09-30 02:11","content":"<p>时间：2025-09-30 02:10<br /><br />【天明】此刻开始，木木开始了先攻，且拒绝对任何问题进行说明和实质性回应<br /></p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":46},{"title_full":"【木木】我保护的必然是真爱尘白的玩家！懂？","datetime":"2025-09-30 02:22","content":"<p>时间：2025-09-30 02:22<br /><br />我保护的必然是真正的尘白玩家！懂？ - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118113294404550665\" target=\"_blank\">https://t.bilibili.com/1118113294404550665</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg_full\" alt=\"\" width=\"30%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？_full.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":47},{"title_full":"【天明】关于 [木木]我保护的必然是真爱尘白的玩家！懂？","datetime":"2025-09-30 02:23","content":"<p>时间：2025-09-30 02:22<br /><br />我保护的必然是真正的尘白玩家！懂？ - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118113294404550665\" target=\"_blank\">https://t.bilibili.com/1118113294404550665</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg_full\" alt=\"\" width=\"30%\" /><br /><br />【天明】<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-10 木木_今晚不睡了.jpg\" alt=\"\" width=\"30%\" /><br />社区陷入水深火热时，口口声声说要\"站出来\"的人在哪？<br />是指发完动态后假死137个小时08分钟吗？然后中秋复活出来，带货卖中秋礼盒是吗？保护在哪？承诺会被保护的\"真正的尘白玩家\"又在哪？<br />呜呜<br />我快要分不清哪些是\"真正的尘白玩家的声音了\"<br /><br />【天明】<br />如果谁保存了图中图，可以发送至overdawn233@gmail.com<br />(提前谢谢了，默认为不记名的匿名投稿)</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？_full.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":48},{"title_full":"【木木】[置顶]那你**还来带节奏","datetime":"2025-09-30 02:25","content":"<p>时间：2025-09-30 02:25<br /><br />[置顶]那你**还来带节奏 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-25 木木_那你还来带节奏.jpg\" alt=\"\" width=\"50%\" /><br /><br />【天明】<br />如果谁保存了图中图，可以发送至overdawn233@gmail.com<br />(提前谢谢了，默认为不记名的匿名投稿)<br /><br />【天明】<br />时间：2025-09-28 04:33<br />此人(黑白影墨)在有男不玩ml吧早已被封禁，是明显的串子，引证⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火2_full.jpg\" alt=\"\" width=\"40%\" /><br />图片来源：右方之火(有男不玩ml吧务)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火_解释被木木拉黑2_full.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-25 木木_那你还来带节奏.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":49},{"title_full":"【木木】[置顶]认真用心做好游戏，如果游戏会死的话，那不如改行了","datetime":"2025-09-30 02:26","content":"<p>时间：2025-09-30 02:26<br /><br />[置顶]认真用心做好游戏，如果游戏会死的话，那不如改行了 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-26 木木_游戏会死那不如改行2.jpg\" alt=\"\" width=\"30%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-26 木木_游戏会死那不如改行1.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-26 木木_游戏会死那不如改行1.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":50},{"title_full":"【木木】[置顶]我并不认可“添油加醋”“过度解读”过的社区规则图","datetime":"2025-09-30 02:32","content":"<p>时间：2025-09-30 02:32<br /><br />[置顶]我并不认可“添油加醋”“过度解读”过的社区规则图 - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118113294404550665#reply277554039232\" target=\"_blank\">https://t.bilibili.com/1118113294404550665#reply277554039232</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-32 木木_我并不认可“添油加醋”“过度解读”过的版本.jpg\" alt=\"\" width=\"50%\" /><br />社区规则图(3.2)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\共识图_3.2.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br />其他版本的社区规则图：<br />3.0⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\共识图_3.0.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br />2.8⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\共识图_2.8.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br />2.7⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\共识图_2.7.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br />2.5⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\共识图_2.5.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])<br /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-32 木木_我并不认可“添油加醋”“过度解读”过的版本.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":51},{"title_full":"【有男不玩ml吧】➡️[自证] 吧务组接受一切拷打","datetime":"2025-09-30 02:41","content":"<p>时间：2025-09-30 02:41<br /><br />吧务组接受一切拷打 - 汐尘紫苑(吧务)<br /><a href=\"https://tieba.baidu.com/p/10084180711\" target=\"_blank\">https://tieba.baidu.com/p/10084180711</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-41 汐尘紫苑_吧务组接受一切拷打.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-59 龙王_消除信息差.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-41 汐尘紫苑_吧务组接受一切拷打.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 02-59 龙王_消除信息差.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":52},{"title_full":"【木木】再次强调","datetime":"2025-09-30 02:53","content":"<p>时间：2025-09-30 02:53<br /><br />再次强调表态，官方承诺过的ml路线，我们会一直坚持也从未想过改变！ - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118124349608427525\" target=\"_blank\">https://t.bilibili.com/1118124349608427525</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-53 木木_再次强调.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 02-53 木木_再次强调.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":53},{"title_full":"【木木】[置顶]这几天我们同事哭着发给我的","datetime":"2025-09-30 03:06","content":"<p>时间：2025-09-30 03:06<br /><br />[置顶]这几天我们同事哭着发给我的 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-06 木木_这几天我们同事哭着发给我的.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 03-06 木木_这几天我们同事哭着发给我的.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":54},{"title_full":"【木木】[置顶]我同事哭着发给我的","datetime":"2025-09-30 03:09","content":"<p>时间：2025-09-30 03:09<br /><br />[置顶]我同事哭着发给我的 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-11 木木_我同事哭着发给我的1.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-09 木木_我同事哭着发给我的2.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 03-11 木木_我同事哭着发给我的1.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 03-09 木木_我同事哭着发给我的2.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":55},{"title_full":"【天明】➡️[反证] 关于 [木木][置顶]我同事哭着发给我的","datetime":"2025-09-30 03:10","content":"<p>时间：2025-09-30 03:09<br /><br />[置顶]我同事哭着发给我的 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-11 木木_我同事哭着发给我的1.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-09 木木_我同事哭着发给我的2.jpg\" alt=\"\" width=\"50%\" /><br />【天明】<br />⚠️注意聊天记录的日期(星期三)<br />0930是星期二(事发时)，而聊天记录里写的是星期三，这说明这图至少是6天前的，那就是9月24日(星期三)<br /><br />而那时(⚠️0924)游戏新版本都还没开启，差不多是尘白禁区刚好停服维护更新的时间(9月25日维护完毕，3.2版本开启)<br />3.2版本还没开放，更别提0927的COS宣发事件<br /><br />1、说明此聊天记录与0927外服宣发无关<br />2、说明此聊天记录与0928线下访问无关，与0928有男不玩ml吧不实公告无关<br />那木木到底想表达什么呢？好难猜啊(笑)<br /><br />3、再提一嘴<br />3、此后的事件也是同样的完全没有下文，且在发出后不久后又被迅速删除了，木圣的小心思你就学吧</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 03-11 木木_我同事哭着发给我的1.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 03-09 木木_我同事哭着发给我的2.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":56},{"title_full":"【木木】是否是极端小团体，大家扪心自问就好了","datetime":"2025-09-30 03:25","content":"<p>时间：2025-09-30 03:25<br /><br />是否是极端小团体，大家扪心自问就好了 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-25 木木_是否是极端小团体，大家扪心自问就好了.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 03-25 木木_是否是极端小团体，大家扪心自问就好了.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":57},{"title_full":"【天明】关于 [木木]不如我们一起努力，重塑一个更好的社区环境","datetime":"2025-09-30 03:26","content":"<p>时间：2025-09-30 03:25<br /><br />是否是极端小团体，大家扪心自问就好了 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-25 木木_是否是极端小团体，大家扪心自问就好了.jpg\" alt=\"\" width=\"50%\" /><br /><br />【天明】<br />\"其次社区的氛围如果继续放任不管，反而会越来越差，与其如此不如我们一起努力，重塑一个更好的社区环境，加油！\" - 木木_MuMu__<br /><br />【天明】<br />一起努力吗？那可太努力了，这我就不得不再提一嘴，发完动态后假死137个小时08分钟，然后中秋复活出来，带货卖明年的中秋礼盒的含金量了，不赖</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 03-25 木木_是否是极端小团体，大家扪心自问就好了.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":58},{"title_full":"【木木】[置顶]这种就是极端","datetime":"2025-09-30 03:55","content":"<p>时间：2025-09-30 03:55<br /><br />[置顶]这种就是极端 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-55 木木_这种就是极端.png\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-55 贴吧_控制不了国际服就毁掉.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 03-55 木木_这种就是极端.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":59},{"title_full":"【木木】[置顶]此时此刻这条还在","datetime":"2025-09-30 04:10","content":"<p>时间：2025-09-30 04:10<br /><br />[置顶]此时此刻这条还在 - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 04-10 木木_此时此刻这条还在.jpg\" alt=\"\" width=\"50%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 04-07 毁灭国际服2.jpg\" alt=\"\" width=\"30%\" /><br />【天明】注：这红框是(木木_MuMu__)当时自己画上去的，不是我后来加上去的，特此声明<br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 04-10 木木_此时此刻这条还在.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":60},{"title_full":"➡️[自证] 经查证，发言者早就已经被封禁","datetime":"2025-09-30 04:11","content":"<p>时间：2025-09-30 04:11<br /><br />经查证，所谓的\"毁灭国际服\"，发言者早就已经被有男不玩ml吧封禁<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 04-07 毁灭国际服2.jpg\" alt=\"\" width=\"30%\" /><br />【天明】注：这红框是(木木_MuMu__)当时自己画上去的，不是我后来加上去的，特此声明<br /><br />【天明】<br />而此人早已在0929(上一天)就被有男不玩ml吧务封禁，且被大量吧友嘲笑(当时(0930事件前)，有男不玩ml吧里有很多人本身就是尘白玩家，吧风也是支持尘白禁区的)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\查证2.jpg\" alt=\"\" width=\"40%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\查证3.jpg\" alt=\"\" width=\"40%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火1_full.jpg\" alt=\"\" width=\"40%\" /><br />【天明】<br />此人(串子)之前的发言，由于过于逆天被吧友逮个正着⬇️<img src=\".\\img\\0930_mumu_chongchong\\查证1.jpg\" alt=\"\" width=\"40%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火3_full.jpg\" alt=\"\" width=\"40%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火4_full.jpg\" alt=\"\" width=\"40%\" /><br />图片来源：<br />关于木圣打码置顶的那个串子图 - 宪兵队副队长<br /><a href=\"https://tieba.baidu.com/p/10088338693\" target=\"_blank\">https://tieba.baidu.com/p/10088338693</a></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 04-12 木木_不懂就问吧里几十个临时吧务都在干什么.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":61},{"title_full":"不懂就问，吧里几十个临时吧务都在干什么？","datetime":"2025-09-30 04:12","content":"<p>时间：2025-09-30 04:12<br /><br />不懂就问，吧里几十个临时吧务都在干什么？(木木_MuMu__ 觉得很赞)<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 04-12 木木_不懂就问吧里几十个临时吧务都在干什么.png\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 04-12 木木_不懂就问吧里几十个临时吧务都在干什么.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":62},{"title_full":"【有男不玩ml吧】➡️[自证] 右方之火(吧务)在评论解释，被木木拉黑删评","datetime":"2025-09-30 05:01","content":"<p>时间：2025-09-30 05:00<br /><br />我的评论记录均已消失不见，本人也被木木拉黑 - 右方之火(有男不玩ml吧务)<br /><a href=\"https://tieba.baidu.com/p/10084273090?pn=5\" target=\"_blank\">https://tieba.baidu.com/p/10084273090?pn=5</a><br /><a href=\"https://tieba.baidu.com/p/10084273090?pn=6\" target=\"_blank\">https://tieba.baidu.com/p/10084273090?pn=6</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 04-54 右方之火_解释被木木拉黑1.jpg\" alt=\"\" width=\"50%\" /><br />右方之火(有男不玩ml吧务)在评论中尝试解释的证据(已被木木拉黑删除)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火_解释被木木拉黑2_full.jpg\" alt=\"\" width=\"30%\" /><br />(如果要缩放，请[右键]-[在新标签页中打开图片])</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 04-54 右方之火_解释被木木拉黑1.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-00 右方之火_解释被木木拉黑2_full.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":63},{"title_full":"【木木】开启了大规模的拉黑","datetime":"2025-09-30 05:02","content":"<p>时间：2025-09-30 05:00<br /><br />在右方之火(有男不玩ml吧务)被拉黑后，短时间内，也有大量的人在集中贴内反映自己被木木拉黑了<br /><br />【天明】<br />这就是木圣所谓的\"沟通\"吗？原来指的是单方面拉黑吗？<br /><a href=\"https://tieba.baidu.com/p/10084273090?pn=6\" target=\"_blank\">https://tieba.baidu.com/p/10084273090?pn=6</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 04-54 右方之火_解释被木木拉黑1.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 04-54 右方之火_解释被木木拉黑1)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-03 被拉黑.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-03 被拉黑)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-06 被拉黑.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-06 被拉黑)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-07 被拉黑.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-07 被拉黑)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-08 被拉黑.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-08 被拉黑)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-08 被拉黑2.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-08 被拉黑2)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-09 被拉黑.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-09 被拉黑)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 05-13 被拉黑.jpg\" alt=\"\" width=\"50%\" /><br />(2025-09-30 05-13 被拉黑)</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 04-54 右方之火_解释被木木拉黑1.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-03 被拉黑.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-06 被拉黑.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-07 被拉黑.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-08 被拉黑.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-08 被拉黑2.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-09 被拉黑.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 05-13 被拉黑.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":64},{"title_full":"【木木】3.3双角色可能延期的事情","datetime":"2025-09-30 08:04","content":"<p>时间：2025-09-30 08:04<br /><br />3.3双角色可能延期的事情 - 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118124349608427525#reply277563095376\" target=\"_blank\">https://t.bilibili.com/1118124349608427525#reply277563095376</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-04 木木_3.3双角色可能延期的事情.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 08-04 木木_3.3双角色可能延期的事情.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":65},{"title_full":"【木木】开始骚扰短信了是吧？谁会做这种事？","datetime":"2025-09-30 08:28","content":"<p>时间：2025-09-30 08:28<br /><br />开始骚扰短信了是吧？谁会做这种事？ - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-31 木木_开始骚扰短信了是吧？谁会做这种事？.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 08-31 木木_开始骚扰短信了是吧？谁会做这种事？.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":66},{"title_full":"【天明】[经典之所以是经典]","datetime":"2025-09-30 08:29","content":"<p>时间：2025-09-30 08:28<br /><br />开始骚扰短信了是吧？谁会做这种事？ - 木木_MuMu__<br />(原文链接)(已被删除)<br /><br />【天明】<br />我不评价，我只放两张图在这里<br />时间：2021-08-18 22-46 剑网3 - 余玉贤<br /><img src=\".\\img\\0930_mumu_chongchong\\2021-08-18 22-46 剑网3余玉贤_短信轰炸.jpg\" alt=\"\" width=\"50%\" /><br />时间：2025-09-30 08-31 尘白禁区 - 木木_MuMu__<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-31 木木_开始骚扰短信了是吧？谁会做这种事？.jpg\" alt=\"\" width=\"50%\" /><br /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2021-08-18 22-46 剑网3余玉贤_短信轰炸.jpg",".\\img\\0930_mumu_chongchong\\2025-09-30 08-31 木木_开始骚扰短信了是吧？谁会做这种事？.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":67},{"title_full":"【木木】不关注游戏？那该关注什么？","datetime":"2025-09-30 08:30","content":"<p>时间：2025-09-30 08:28<br /><br />做游戏的话，不关注游戏？那该关注什么？ - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-04 木木_3.3双角色可能延期的事情.jpg\" alt=\"\" width=\"45%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-27 木木_不关注游戏？那该关注什么？.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 08-27 木木_不关注游戏？那该关注什么？.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":68},{"title_full":"有一种左右脑互搏的美感","datetime":"2025-09-30 08:31","content":"时间：2025-09-30 02-10<br />需要有人替蒙受不白之冤的尘白玩家主持公道(木木)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-10 木木_今晚不睡了.jpg\" alt=\"\" width=\"40%\" /><br />时间：2025-09-30 02-22<br />我保护的必然是真正的尘白玩家！懂？(木木)⬇️<img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 02-22 木木_我保护的必然是真正的尘白玩家！懂？.jpg\" alt=\"\" width=\"40%\" /><br />时间：2025-09-30 03-25<br />与其如此不如我们一起努力，重塑一个更好的社区环境，加油！(木木)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 03-25 木木_是否是极端小团体，大家扪心自问就好了.jpg\" alt=\"\" width=\"40%\" /><br />时间：2025-09-30 08-27<br />3.3双角色可能延期的事情(木木)<br />不关注游戏？那该关注什么？(木木)⬇️<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-04 木木_3.3双角色可能延期的事情.jpg\" alt=\"\" width=\"45%\" /><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-27 木木_不关注游戏？那该关注什么？.jpg\" alt=\"\" width=\"50%\" /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 08-27 木木_不关注游戏？那该关注什么？.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":69},{"title_full":"【木木】也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚","datetime":"2025-09-30 08:39","content":"<p>时间：2025-09-30 08:39<br /><br />某些极端小团体，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，其次还愿意相信他们的你们自己思考一下，到底是信这群人还是愿意信我，我作为一个官方人员都会遇到这种，其他玩家呢？冲我来好了，不怕的！ - 木木_MuMu__<br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-31 木木_某些极端小团体.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 08-27 木木_不关注游戏？那该关注什么？.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":70},{"title_full":"[杀死比赛] 也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚","datetime":"2025-09-30 08:40","content":"<p>时间：2025-09-30 08:39<br /><br />(原文链接)(已被删除)<br /><img src=\".\\img\\0930_mumu_chongchong\\2025-09-30 08-31 木木_某些极端小团体.jpg\" alt=\"\" width=\"50%\" /><br /><br />【天明】<br />某些极端小团体，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚<br />其次还愿意相信他们的你们自己思考一下，到底是信这群人还是愿意信我<br />我作为一个官方人员都会遇到这种，其他玩家呢？冲我来好了，不怕的！<br />(2025，木木_MuMu__)<br /><br />【天明】<br />传世经典，请各位学习并默写朗读，直至全文背诵<br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br />【天明】<br />也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚，也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚<br />(注 - 参考文献，xx老宅)</p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-09-30 08-27 木木_不关注游戏？那该关注什么？.jpg"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":71},{"title_full":"【木木】承诺的永远不变！ - 木木_MuMu__","datetime":"2025-10-01 01:55","content":"<p>时间：2025-10-01 01:55<br /><br />承诺的永远不变！- 木木_MuMu__<br /><a href=\"https://t.bilibili.com/1118480441078185984\" target=\"_blank\">https://t.bilibili.com/1118480441078185984</a><br /><img src=\".\\img\\0930_mumu_chongchong\\2025-10-01 01-55 木木_承诺的永远不变！.jpg\" alt=\"\" width=\"50%\" /><br /></p>","thumbnails":[".\\img\\0930_mumu_chongchong\\2025-10-01 01-55 木木_承诺的永远不变！.jpg"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":72},{"title_full":"0930事件结束","datetime":"2025-10-01 01:56","content":"<p>时间：2025-10-01 01:55<br /><br />【天明】<br />虽然木木完全没有拿出足够的证据<br />论证他所谓的\"极端小团体\"<br />1、到底哪些是极端行为<br />2、到底哪部分人触及了他的行为红线<br /><br />但是<br /><br />也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚<br />也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚<br />也不用否认这事不是你们做的，从否认的那一刻起开始就只能证明你们心虚<br /><br />游戏已经结束了<br /><br />【天明】<br />随后(0930事件之后)<br />尘白官方Q群，尘白禁区吧(百度贴吧)，两个尘白禁区目前最大的社区(此外还有B站)<br />在没有足够证据的情况下，开始了贷款切割，对任何有男不玩ml吧的成员进行了大规模的猎巫行动<br /><br />包括但不限于：<br />1、尘白禁区核心团(B站)，在没有任何沟通和通知的情况下，(查动态成分)来移除成员(包括但不限于仅对尘白争议话题的讨论，例如青梅出嫁的责任归属问题)<br />2、尘白禁区官号下场(拉黑玩家)(拉黑尘白禁区官号充电榜榜一大哥)[榜一大哥给尘白禁区官号充值了24888天的充电]<br />3、尘白禁区吧，大量移除有男不玩ml吧尘白玩家以前在尘白禁区吧创建且被认证的(精华帖)<br />4、官方运营装死，假死，并拒绝回应任何的问题(0927COS宣发问题的起因，处理，和补偿)(B站尘白禁区收藏集，青梅出嫁BGM问题)<br /><br />【天明】<br />至此，切割完成<br />有男不玩ml吧也因此彻底从尘白禁区支持吧，转为尘白禁区反对吧</p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":73},{"title_full":"【番外篇】成都访问线下人员，王松鼠，指控线下访问中存在小团体","datetime":"2025-10-01 02:00","content":"<p>时间：2025-10-01 01:55<br /><br />[更新中]<br /></p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"right","colorGroup":"default","customColor":null,"title":"","id":74},{"title_full":"恭喜，你充的钱开始回来找你了","datetime":"2025-10-01 02:01","content":"<p>时间：2025-10-01 02:39<br /><br />恭喜，你充的钱要回来找你了<br /></p>","thumbnails":[".\\img\\2025-10-21 13-58-01 overdawn233.png"],"position":"left","colorGroup":"default","customColor":null,"title":"","id":75}]
+		;
+		// 侧边栏切换
+		function toggleSidebar() {
+			document.getElementById('sidebar').classList.toggle('open');
+		}
+
+		// 解析日期时间
+		function parseDateTime(datetime) {
+			const date = new Date(datetime);
+			return {
+				year: date.getFullYear(),
+				month: date.getMonth() + 1,
+				day: date.getDate(),
+				full: date
+			};
+		}
+
+		// 生成时间线
+		function generateTimeline() {
+			const timeline = document.getElementById('timeline');
+			const sidebarList = document.getElementById('sidebarList');
+			
+			// 按时间排序
+			const sortedEvents = [...events].sort((a, b) => 
+				new Date(a.datetime) - new Date(b.datetime)
+			);
+
+			let currentYearMonth = '';
+			
+			sortedEvents.forEach((event, index) => {
+				const dt = parseDateTime(event.datetime);
+				const yearMonth = `${dt.year}年${dt.month}月`;
+				
+				// 检查是否需要插入大气泡
+				if (yearMonth !== currentYearMonth) {
+					currentYearMonth = yearMonth;
+					const bigBubble = document.createElement('div');
+					bigBubble.className = 'big-bubble';
+					
+					const group = colorGroups[event.colorGroup] || colorGroups.default;
+					bigBubble.innerHTML = `
+						<div class="big-bubble-content" style="background: ${group.bigBubble}">
+							${yearMonth}
+						</div>
+					`;
+					timeline.appendChild(bigBubble);
+				}
+
+				// 特殊事件大气泡
+				if (dt.full.getTime() == new Date('2025-09-27 16:58').getTime()) {
+					const bigBubble = document.createElement('div');
+					bigBubble.className = 'big-bubble';
+					
+					const group = colorGroups[event.colorGroup] || colorGroups.default;
+					bigBubble.innerHTML = `
+						<div class="big-bubble-content" style="background: ${group.bigBubble}">
+							2025年9月27日<br />COS宣发事件
+						</div>
+					`;
+					timeline.appendChild(bigBubble);
+				}
+				// 特殊事件大气泡
+				if (dt.full.getTime() == new Date('2025-09-28 16:49').getTime()) {
+					const bigBubble = document.createElement('div');
+					bigBubble.className = 'big-bubble';
+					
+					const group = colorGroups[event.colorGroup] || colorGroups.default;
+					bigBubble.innerHTML = `
+						<div class="big-bubble-content" style="background: ${group.bigBubble}">
+							2025年9月28日<br />玩家线下访问
+						</div>
+					`;
+					timeline.appendChild(bigBubble);
+				}
+				// 特殊事件大气泡
+				if (dt.full.getTime() == new Date('2025-09-30 01:31').getTime()) {
+					const bigBubble = document.createElement('div');
+					bigBubble.className = 'big-bubble';
+					
+					const group = colorGroups[event.colorGroup] || colorGroups.default;
+					bigBubble.innerHTML = `
+						<div class="big-bubble-content" style="background: ${group.bigBubble}">
+							2025年9月30日<br />官方下场切割事件
+						</div>
+					`;
+					timeline.appendChild(bigBubble);
+				}
+
+				// 插入小气泡（日期）
+				const smallBubble = document.createElement('div');
+				smallBubble.className = 'small-bubble';
+				const group = colorGroups[event.colorGroup] || colorGroups.default;
+				smallBubble.innerHTML = `
+					<div class="small-bubble-content" style="background: ${group.smallBubble}">
+						${dt.day}日
+					</div>
+				`;
+				timeline.appendChild(smallBubble);
+				
+				// 插入事件气泡
+				const eventContainer = document.createElement('div');
+				eventContainer.className = 'event-container';
+				eventContainer.id = `event-${event.id}`;
+
+				const eventBubble = document.createElement('div');
+				eventBubble.className = `event-bubble ${event.position}`;
+				
+				// 应用颜色
+				const bgColor = event.customColor || group.eventBubble;
+				eventBubble.style.background = bgColor;
+
+				// 设置小三角的颜色
+				eventBubble.style.setProperty('--triangle-color', bgColor);
+				
+				// 调整文字颜色（根据背景色亮度）
+				const brightness = getBrightness(bgColor);
+				const textColor = brightness > 128 ? '#2c3e50' : '#ffffff';
+				eventBubble.style.color = textColor;
+				
+				// 构建缩略图HTML
+				let thumbnailsHtml = '';
+				if (event.thumbnails && event.thumbnails.length > 0) {
+					thumbnailsHtml = '<div class="thumbnails">';
+					event.thumbnails.forEach(thumb => {
+						thumbnailsHtml += `<img src="${thumb}" class="thumbnail" alt="缩略图">`;
+					});
+					thumbnailsHtml += '</div>';
+				}
+				
+				eventBubble.innerHTML = `
+					<div class="event-bubble-inner">
+						<div class="event-title">${event.title_full}</div>
+						${thumbnailsHtml}
+						<div class="expand-hint">点击展开详情 ▼</div>
+						<div class="event-content">${event.content}</div>
+						<div class="collapse-hint">点击收起 ▲</div>
+					</div>
+				`;
+
+				// 1. 在 eventBubble 点击事件中添加 stopPropagation
+				eventBubble.addEventListener('click', function(e) {
+					// 阻止事件冒泡到全局监听器
+					e.stopPropagation();
+					
+					// 如果点击的是收起按钮区域
+					if (e.target.classList.contains('collapse-hint') || 
+						e.target.closest('.collapse-hint')) {
+						this.classList.remove('expanded');
+						// 恢复容器层级
+						eventContainer.style.zIndex = '1';
+					} 
+					// 如果未展开，则展开
+					else if (!this.classList.contains('expanded')) {
+						// 关闭其他已展开的事件
+						document.querySelectorAll('.event-bubble.expanded').forEach(bubble => {
+							bubble.classList.remove('expanded');
+							bubble.closest('.event-container').style.zIndex = '1';
+						});
+						
+						this.classList.add('expanded');
+						// 提升当前容器层级
+						eventContainer.style.zIndex = '100';
+					}
+				});
+
+				// 2. 修改全局点击监听器，添加收起气泡的逻辑
+				document.addEventListener('click', function(e) {
+					const sidebar = document.getElementById('sidebar');
+					const toggle = document.querySelector('.sidebar-toggle');
+					const fullscreenContainer = document.getElementById('fullscreenContainer');
+
+					// 如果点击的是全屏图片容器，不执行其他关闭操作
+					if (fullscreenContainer.contains(e.target)) {
+						return;
+					}
+					
+					// 关闭侧边栏
+					if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
+						sidebar.classList.remove('open');
+					}
+					
+					// 收起展开的事件气泡
+					// 检查点击目标是否在展开的气泡内部
+					if (!e.target.closest('.event-bubble.expanded')) {
+						document.querySelectorAll('.event-bubble.expanded').forEach(bubble => {
+							bubble.classList.remove('expanded');
+							bubble.closest('.event-container').style.zIndex = '1';
+						});
+					}
+				});
+
+				// 为事件内容中的图片添加点击事件
+				const contentImages = eventBubble.querySelectorAll('.event-content img');
+				contentImages.forEach(img => {
+				img.addEventListener('click', function(e) {
+					e.stopPropagation(); // 阻止事件冒泡
+					showFullscreenImage(this.src);
+				});
+			});
+
+				// 点击展开/收起事件
+				eventBubble.addEventListener('click', function(e) {
+					// 如果点击的是收起按钮区域
+					if (e.target.classList.contains('collapse-hint') || 
+						e.target.closest('.collapse-hint')) {
+						this.classList.remove('expanded');
+						// 恢复容器层级
+						eventContainer.style.zIndex = '1';
+					} 
+					// 如果未展开，则展开
+					else if (!this.classList.contains('expanded')) {
+						// 关闭其他已展开的事件
+						document.querySelectorAll('.event-bubble.expanded').forEach(bubble => {
+							bubble.classList.remove('expanded');
+							bubble.closest('.event-container').style.zIndex = '1';
+						});
+						
+						this.classList.add('expanded');
+						// 提升当前容器层级
+						eventContainer.style.zIndex = '100';
+					}
+				});
+				
+				eventContainer.appendChild(eventBubble);
+				timeline.appendChild(eventContainer);
+				
+				if (event.position == 'left') {
+					// 添加到侧边栏
+					const li = document.createElement('li');
+					const link = document.createElement('a');
+					link.href = `#event-${event.id}`;
+					link.textContent = event.title ? event.title : event.title_full;
+					// 为小圆点设置颜色
+					link.style.setProperty('--dot-color', bgColor);
+					li.appendChild(link);
+					sidebarList.appendChild(li);
+				} else {
+					// // 添加到侧边栏
+					// const li = document.createElement('li');
+					// const link = document.createElement('a');
+					// link.href = `#event-${event.id}`;
+					// link.textContent = event.title ? event.title : event.title_full;
+					// // 为小圆点设置颜色
+					// link.style.setProperty('--dot-color', bgColor);
+					// li.appendChild(link);
+					// sidebarList.appendChild(li);
+				}
+
+			});
+		}
+
+		// 添加全屏显示图片功能
+		const fullscreenContainer = document.getElementById('fullscreenContainer');
+		const fullscreenImage = document.getElementById('fullscreenImage');
+
+		function showFullscreenImage(src) {
+			fullscreenImage.src = src;
+			fullscreenContainer.classList.add('active');
+			document.body.style.overflow = 'hidden'; // 禁止背景滚动
+		}
+
+		// 点击全屏容器时关闭
+		fullscreenContainer.addEventListener('click', function() {
+			this.classList.remove('active');
+			document.body.style.overflow = ''; // 恢复背景滚动
+		});
+
+		// 阻止点击图片时关闭
+		fullscreenImage.addEventListener('click', function(e) {
+			e.stopPropagation();
+		});
+
+		// ESC键关闭全屏显示
+		document.addEventListener('keydown', function(e) {
+			if (e.key === 'Escape' && fullscreenContainer.classList.contains('active')) {
+				fullscreenContainer.classList.remove('active');
+				document.body.style.overflow = '';
+			}
+		});
+
+		// 计算颜色亮度
+		function getBrightness(color) {
+			if (color.startsWith('#')) {
+				const hex = color.substring(1);
+				const r = parseInt(hex.substr(0, 2), 16);
+				const g = parseInt(hex.substr(2, 2), 16);
+				const b = parseInt(hex.substr(4, 2), 16);
+				return (r * 299 + g * 587 + b * 114) / 1000;
+			}
+			return 128; // 默认中等亮度
+		}
+
+		// 页面加载时生成时间线
+		window.addEventListener('DOMContentLoaded', generateTimeline);
+	</script>
+	<script>
+		window.addEventListener("load", function() {
+			var s = document.createElement("script");
+			s.src = "./js/count.js";
+			s.async = true;
+			s.setAttribute("data-goatcounter", "https://overdawn233-snow20259030.goatcounter.com/count");
+			document.body.appendChild(s);
+		});
+	</script>
+</body>
+</html>
