@@ -1,0 +1,60 @@
+/* =========================================================
+   Simple Text Color System (No Dark Mode Override)
+   Ordered by common usage priority
+   ========================================================= */
+
+
+/* 1. Primary (主要强调) */
+.text_primary,
+.text_blue {
+  color: #1976d2;
+}
+
+
+/* 2. Success (成功 / 正确) */
+.text_success,
+.text_green {
+  color: #2e7d32;
+}
+
+
+/* 3. Warning (警告) */
+.text_warning,
+.text_orange {
+  color: #ed6c02;
+}
+
+
+/* 4. Error (错误) */
+.text_error,
+.text_red {
+  color: #d32f2f;
+}
+
+
+/* 5. Info (信息) */
+.text_info,
+.text_lightblue {
+  color: #0288d1;
+}
+
+
+/* 6. Muted (次要说明) */
+.text_muted,
+.text_gray {
+  color: #616161;
+}
+
+
+/* 7. Purple (高级 / 技术类) */
+.text_purple,
+.text_violet {
+  color: #7b1fa2;
+}
+
+
+/* 8. Teal (接口 / API 类) */
+.text_teal,
+.text_cyan {
+  color: #00796b;
+}
