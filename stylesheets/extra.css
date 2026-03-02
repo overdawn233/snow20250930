@@ -58,3 +58,8 @@
 .text_cyan {
   color: #00796b;
 }
+
+/* 完全解决 TOC 滚动穿透问题 */
+.md-sidebar__scrollwrap {
+  overscroll-behavior: contain;
+}
