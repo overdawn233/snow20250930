@@ -2,9 +2,13 @@
 2025年9月30日，尘白禁区官方运营(木木_MuMu__)下场切割有男不玩ml吧"极端小团体"  
 史料合集 by 天明overdawn  
 
+## 尘白禁区记事簿
 尘白禁区20250930记事簿：  
 https://snow20250930.pages.dev/  
+尘白禁区20250930记事簿(备用)：  
+https://overdawn233.github.io/snow20250930/  
 
+## 事件时间线
 事件时间线：  
 https://snow20250930.pages.dev/timeline.html  
 事件时间线(备用)：  
@@ -14,3 +18,4 @@ https://overdawn233.github.io/snow20250930/timeline.html
 项目地址(开源)：
 
 https://github.com/overdawn233/snow20250930/
+
