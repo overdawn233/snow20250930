@@ -3,6 +3,11 @@
    Ordered by common usage priority
    ========================================================= */
 
+/* html scale */
+html {
+  font-size: 100% !important;
+}
+
 
 /* 1. Primary (主要强调) */
 .text_primary,
